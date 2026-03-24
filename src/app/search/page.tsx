@@ -122,10 +122,11 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
             <div className="rounded-lg border border-destructive/50 bg-destructive/10 px-4 py-3 text-sm text-destructive">
               {error}
               <span className="mt-1 block text-muted-foreground">
-                Add <code className="rounded bg-muted px-1">NEXT_PUBLIC_SUPABASE_URL</code> and{" "}
+                Set <code className="rounded bg-muted px-1">NEXT_PUBLIC_SUPABASE_URL</code> and{" "}
                 <code className="rounded bg-muted px-1">NEXT_PUBLIC_SUPABASE_ANON_KEY</code> in{" "}
-                <code className="rounded bg-muted px-1">.env.local</code> and run Supabase migrations (003, 004
-                for FHMI search).
+                <code className="rounded bg-muted px-1">.env.local</code> (local) or Vercel → Environment
+                Variables, then <strong>redeploy</strong> — Next bakes <code className="rounded bg-muted px-1">NEXT_PUBLIC_*</code> at{" "}
+                <strong>build</strong> time. Ensure DB has run <code className="rounded bg-muted px-1">supabase/setup_complete.sql</code>.
               </span>
             </div>
           )}

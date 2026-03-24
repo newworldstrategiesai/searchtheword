@@ -92,6 +92,17 @@ Open [http://localhost:3000](http://localhost:3000).
 
 6. Re-deploy or wait for the next push; test **login**, **search**, and **admin** with an `app_metadata.role = admin` user.
 
+### Troubleshooting: “supabaseUrl is required” or missing Supabase on Vercel
+
+`NEXT_PUBLIC_*` variables are embedded at **build** time. If you added them in Vercel **after** the first deploy, the running build still has empty values until you **redeploy**.
+
+1. **Vercel → Project → Settings → Environment Variables** — confirm both names match exactly: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY` (no typos, no trailing spaces).
+2. Enable them for **Production** and, if you use PR previews, **Preview**.
+3. **Deployments →** open the latest deployment → **⋯ → Redeploy** (optionally clear build cache).
+4. Push a new commit if you prefer redeploy from git.
+
+Local: put the same keys in `.env.local` in the **project root** (same folder as `package.json`), one variable per line, then restart `npm run dev`.
+
 ## Project structure
 
 - `src/app` — routes (home, search, sermon detail, login, admin) and API routes
