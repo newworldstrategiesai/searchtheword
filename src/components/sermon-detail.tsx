@@ -1,10 +1,12 @@
 import Link from "next/link";
-import { ArrowLeft, Calendar, ExternalLink, Library, User } from "lucide-react";
+import { ArrowLeft, Calendar, ExternalLink, Folder, Library, User } from "lucide-react";
 import type { SermonWithKeywords } from "@/lib/types";
 import { buttonVariants } from "@/lib/button-variants";
 import { cn } from "@/lib/utils";
 import { Separator } from "@/components/ui/separator";
 import { KeywordBadge } from "@/components/keyword-badge";
+import { DriveEmbedFrame } from "@/components/drive-embed-frame";
+import { getGoogleDriveEmbedInfo, isDriveFolderUrl } from "@/lib/google-drive-embed";
 
 function extractYoutubeId(url: string): string | null {
   try {
@@ -47,6 +49,16 @@ function MediaBlock({ url }: { url: string }) {
       </audio>
     );
   }
+  const driveEmbed = getGoogleDriveEmbedInfo(url);
+  if (driveEmbed) {
+    return (
+      <DriveEmbedFrame
+        embedUrl={driveEmbed.embedUrl}
+        originalUrl={url}
+        documentLabel="Sermon media"
+      />
+    );
+  }
   return (
     <a
       href={url}
@@ -74,6 +86,54 @@ function formatRef(r: NonNullable<SermonWithKeywords["scripture_refs"]>[0]): str
 type SermonDetailProps = {
   sermon: SermonWithKeywords;
 };
+
+function SourceDocumentSection({ url, title }: { url: string; title: string }) {
+  const embed = getGoogleDriveEmbedInfo(url);
+  if (embed) {
+    return (
+      <DriveEmbedFrame
+        embedUrl={embed.embedUrl}
+        originalUrl={url}
+        documentLabel={`${title} — source document`}
+      />
+    );
+  }
+  if (isDriveFolderUrl(url)) {
+    return (
+      <div className="rounded-xl border border-border bg-muted/30 p-6 text-center dark:bg-muted/10">
+        <Folder className="mx-auto mb-3 h-10 w-10 text-muted-foreground" aria-hidden />
+        <p className="text-sm text-muted-foreground">
+          This source is a folder and can’t be shown inline. Open it to browse its contents.
+        </p>
+        <a
+          href={url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className={cn(
+            buttonVariants({ variant: "outline", size: "sm" }),
+            "mt-4 inline-flex items-center gap-2",
+          )}
+          aria-label="Open source folder in a new tab"
+        >
+          <ExternalLink className="size-3.5" aria-hidden />
+          Open original
+        </a>
+      </div>
+    );
+  }
+  return (
+    <a
+      href={url}
+      target="_blank"
+      rel="noopener noreferrer"
+      className={cn(buttonVariants({ variant: "outline", size: "sm" }), "inline-flex items-center gap-2")}
+      aria-label="Open source document in a new tab"
+    >
+      <ExternalLink className="h-4 w-4" />
+      Open original
+    </a>
+  );
+}
 
 export function SermonDetail({ sermon }: SermonDetailProps) {
   const drive = sermon.google_drive_url;
@@ -138,17 +198,9 @@ export function SermonDetail({ sermon }: SermonDetailProps) {
       </div>
 
       {drive && (
-        <section className="space-y-2">
+        <section className="space-y-3">
           <h2 className="text-sm font-medium text-muted-foreground">Source</h2>
-          <a
-            href={drive}
-            target="_blank"
-            rel="noopener noreferrer"
-            className={cn(buttonVariants({ variant: "outline", size: "sm" }), "inline-flex items-center gap-2")}
-          >
-            <ExternalLink className="h-4 w-4" />
-            Open in Google Drive
-          </a>
+          <SourceDocumentSection url={drive} title={sermon.title} />
         </section>
       )}
 

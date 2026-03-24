@@ -231,7 +231,7 @@ export function SermonForm({ initial, onSubmit, submitting, submitLabel }: Props
             <Input id="sf-media" value={values.media_url} onChange={(e) => set("media_url", e.target.value)} />
           </div>
           <div className="space-y-1.5">
-            <Label htmlFor="sf-gdrive">Google Drive URL</Label>
+            <Label htmlFor="sf-gdrive">Source document URL</Label>
             <Input id="sf-gdrive" value={values.google_drive_url} onChange={(e) => set("google_drive_url", e.target.value)} />
           </div>
           <div className="space-y-1.5 sm:col-span-2">
