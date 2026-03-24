@@ -21,14 +21,9 @@ Church sermon search — Next.js (App Router), Tailwind, shadcn/ui, Supabase (Po
 
 3. **Database**
 
-   In the Supabase SQL editor (or `supabase db push` if you use the Supabase CLI), run migrations in order:
+   In **Supabase → SQL Editor**, run [`supabase/setup_complete.sql`](supabase/setup_complete.sql) once (full schema + `search_sermons` v2). Or run migrations `001` → `003` → `004` in order (`002` is superseded by `004`).
 
-   - [`supabase/migrations/001_initial_schema.sql`](supabase/migrations/001_initial_schema.sql)
-   - [`supabase/migrations/002_search_functions.sql`](supabase/migrations/002_search_functions.sql) (superseded by 004 for search RPC)
-   - [`supabase/migrations/003_fhmi_schema.sql`](supabase/migrations/003_fhmi_schema.sql) — FHMI columns, `sermon_scripture_refs`, keyword `kind`, expanded FTS
-   - [`supabase/migrations/004_search_sermons_v2.sql`](supabase/migrations/004_search_sermons_v2.sql) — `search_sermons` v2 (modes, highlights, filters)
-
-   Optionally run [`supabase/seed.sql`](supabase/seed.sql) for sample rows (may need adjusting after 003).
+   Optionally run [`supabase/seed.sql`](supabase/seed.sql) for sample rows (adjust for keyword `(name, kind)` if needed).
 
    Smoke / EXPLAIN helpers: [`supabase/tests/search_smoke.sql`](supabase/tests/search_smoke.sql).
 
@@ -63,16 +58,39 @@ npm run dev
 
 Open [http://localhost:3000](http://localhost:3000).
 
+## GitHub
+
+1. Create a new empty repository on [GitHub](https://github.com/new) (no README/license if you already have them locally).
+2. In the project folder:
+
+   ```bash
+   git remote add origin https://github.com/YOUR_USER/YOUR_REPO.git
+   git push -u origin main
+   ```
+
+   If GitHub shows a different default branch name, follow its instructions or rename with `git branch -M main`.
+
 ## Deploy (Vercel)
 
-1. Push the repo to GitHub/GitLab/Bitbucket.
-2. Import the project in [Vercel](https://vercel.com).
-3. Add environment variables (same as `.env.local`):
-   - `NEXT_PUBLIC_SUPABASE_URL`
-   - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
-   - Do **not** add `SUPABASE_SERVICE_ROLE_KEY` to Vercel unless you run trusted server-only jobs; use it only for CI/ingest scripts or Edge-safe alternatives.
+1. Sign in at [vercel.com](https://vercel.com) with GitHub and **Add New… → Project**.
+2. **Import** your GitHub repository. Framework Preset should detect **Next.js**; leave defaults (root = repo root, `npm run build`, output handled by Next).
+3. **Environment Variables** (before first deploy, or under Project → Settings → Environment Variables):
 
-4. Deploy. After deploy, confirm Supabase **Authentication → URL Configuration** includes your production URL (and redirect URLs for `/login`).
+   | Name | Value |
+   |------|--------|
+   | `NEXT_PUBLIC_SUPABASE_URL` | Supabase **Project Settings → API → Project URL** |
+   | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase **anon public** key |
+   | `OPENAI_API_KEY` | *(Optional)* For **Ask AI** chat in production |
+
+   Use **Production** (and **Preview** if you want preview deployments to hit Supabase too). Do **not** commit `.env.local`; do not put the **service role** key in client-exposed env vars.
+
+4. **Deploy**. When the build finishes, open the `.vercel.app` URL.
+5. In **Supabase → Authentication → URL Configuration**, add:
+
+   - **Site URL**: `https://your-app.vercel.app` (your production URL)
+   - **Redirect URLs**: `https://your-app.vercel.app/**` and `http://localhost:3000/**` for local login
+
+6. Re-deploy or wait for the next push; test **login**, **search**, and **admin** with an `app_metadata.role = admin` user.
 
 ## Project structure
 
