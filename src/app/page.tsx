@@ -1,65 +1,95 @@
-import Image from "next/image";
+import Link from "next/link";
+import { TopicCloud } from "@/components/topic-cloud";
+import { SermonCard } from "@/components/sermon-card";
+import { HomeHeroSearch } from "@/components/home-hero-search";
+import { buttonVariants } from "@/lib/button-variants";
+import { cn } from "@/lib/utils";
+import { createPublicSupabaseClient } from "@/lib/supabase/server";
+import { searchSermonsServer } from "@/lib/sermons";
+import { getKeywordsForSermonIds } from "@/lib/keywords-batch";
+import type { Keyword, SermonSearchRow } from "@/lib/types";
 
-export default function Home() {
+export const dynamic = "force-dynamic";
+
+export default async function HomePage() {
+  let keywords: Keyword[] = [];
+  try {
+    const supabase = createPublicSupabaseClient();
+    const { data } = await supabase.from("keywords").select("id, name").order("name").limit(40);
+    keywords = (data ?? []) as Keyword[];
+  } catch {
+    keywords = [];
+  }
+
+  let recent: SermonSearchRow[] = [];
+  let kwMap = new Map<string, string[]>();
+  try {
+    const { results } = await searchSermonsServer({ q: "", page: 1, limit: 6 });
+    recent = results;
+    const recentIds = results.map((r) => r.id);
+    kwMap = await getKeywordsForSermonIds(recentIds);
+  } catch {
+    recent = [];
+  }
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
+    <div>
+      <section className="relative overflow-hidden border-b border-border/50 bg-gradient-to-b from-accent/30 via-background to-background px-4 py-16 dark:from-primary/10 dark:via-background md:py-24">
+        <div
+          className="pointer-events-none absolute inset-0 opacity-[0.35] dark:opacity-20"
+          style={{
+            backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='60' height='60' viewBox='0 0 60 60'%3E%3Cg fill='none' stroke='oklch(0.5 0.05 265 / 0.12)' stroke-width='0.5'%3E%3Cpath d='M30 0v60M0 30h60'/%3E%3C/g%3E%3C/svg%3E")`,
+          }}
+          aria-hidden
         />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
+        <HomeHeroSearch />
+      </section>
+
+      <div className="mx-auto max-w-5xl space-y-16 px-4 py-14">
+        <section className="space-y-5">
+          <div className="flex flex-wrap items-end justify-between gap-2 border-b border-border/60 pb-4">
+            <div>
+              <p className="text-xs font-medium uppercase tracking-[0.16em] text-primary">Browse</p>
+              <h2 className="font-heading mt-1 text-2xl font-semibold tracking-tight text-foreground">
+                Popular topics
+              </h2>
+              <p className="mt-1 text-sm text-muted-foreground">Jump in with a tag from your archive.</p>
+            </div>
+            <Link href="/search" className={cn(buttonVariants({ variant: "ghost", size: "sm" }), "text-muted-foreground")}>
+              Browse all
+            </Link>
+          </div>
+          <TopicCloud keywords={keywords} />
+        </section>
+
+        <section className="space-y-5">
+          <div className="flex items-center justify-between gap-2 border-b border-border/60 pb-4">
+            <div>
+              <p className="text-xs font-medium uppercase tracking-[0.16em] text-primary">Latest</p>
+              <h2 className="font-heading mt-1 text-2xl font-semibold tracking-tight text-foreground">
+                Recent sermons
+              </h2>
+            </div>
+            <Link
+              href="/search"
+              className={cn(buttonVariants({ variant: "link" }), "text-muted-foreground")}
             >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
+              View all
+            </Link>
+          </div>
+          {recent.length === 0 ? (
+            <p className="rounded-xl border border-dashed border-border bg-muted/20 px-4 py-10 text-center text-muted-foreground">
+              No sermons yet. Import a CSV or spreadsheet via the admin tools after connecting Supabase.
+            </p>
+          ) : (
+            <div className="grid gap-4 md:grid-cols-2">
+              {recent.map((s) => (
+                <SermonCard key={s.id} sermon={s} keywords={kwMap.get(s.id) ?? []} />
+              ))}
+            </div>
+          )}
+        </section>
+      </div>
     </div>
   );
 }
