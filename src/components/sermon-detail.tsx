@@ -52,11 +52,7 @@ function MediaBlock({ url }: { url: string }) {
   const driveEmbed = getGoogleDriveEmbedInfo(url);
   if (driveEmbed) {
     return (
-      <DriveEmbedFrame
-        embedUrl={driveEmbed.embedUrl}
-        originalUrl={url}
-        documentLabel="Sermon media"
-      />
+      <DriveEmbedFrame embedUrl={driveEmbed.embedUrl} documentLabel="Sermon media" />
     );
   }
   return (
@@ -91,11 +87,7 @@ function SourceDocumentSection({ url, title }: { url: string; title: string }) {
   const embed = getGoogleDriveEmbedInfo(url);
   if (embed) {
     return (
-      <DriveEmbedFrame
-        embedUrl={embed.embedUrl}
-        originalUrl={url}
-        documentLabel={`${title} — source document`}
-      />
+      <DriveEmbedFrame embedUrl={embed.embedUrl} documentLabel={`${title} — source document`} />
     );
   }
   if (isDriveFolderUrl(url)) {
@@ -113,10 +105,10 @@ function SourceDocumentSection({ url, title }: { url: string; title: string }) {
             buttonVariants({ variant: "outline", size: "sm" }),
             "mt-4 inline-flex items-center gap-2",
           )}
-          aria-label="Open source folder in a new tab"
+          aria-label="View folder in a new tab"
         >
           <ExternalLink className="size-3.5" aria-hidden />
-          Open original
+          View folder
         </a>
       </div>
     );
@@ -127,10 +119,10 @@ function SourceDocumentSection({ url, title }: { url: string; title: string }) {
       target="_blank"
       rel="noopener noreferrer"
       className={cn(buttonVariants({ variant: "outline", size: "sm" }), "inline-flex items-center gap-2")}
-      aria-label="Open source document in a new tab"
+      aria-label="View source in a new tab"
     >
       <ExternalLink className="h-4 w-4" />
-      Open original
+      View source
     </a>
   );
 }
