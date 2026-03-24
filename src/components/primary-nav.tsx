@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { Database, MessageSquare, Shield } from "lucide-react";
+import { Database, MessageSquare, Shield, UserCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export const PRIMARY_NAV_LINKS = [
@@ -13,6 +13,7 @@ export const PRIMARY_NAV_LINKS = [
     match: (p: string) => p === "/" || p.startsWith("/search") || p.startsWith("/sermon"),
   },
   { href: "/ask", label: "Ask AI", icon: MessageSquare, match: (p: string) => p.startsWith("/ask") },
+  { href: "/account", label: "Account", icon: UserCircle, match: (p: string) => p.startsWith("/account") },
   { href: "/admin", label: "Admin", icon: Shield, match: (p: string) => p.startsWith("/admin") },
 ] as const;
 

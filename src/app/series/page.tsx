@@ -24,7 +24,8 @@ type SeriesPageProps = {
 export async function generateMetadata({ searchParams }: SeriesPageProps): Promise<Metadata> {
   const sp = await searchParams;
   const series = sp.series?.trim() ?? "";
-  const title = series ? `${series} · SearchTheWord` : "Series · SearchTheWord";
+  /** Segment only — root layout template adds " · SearchTheWord". */
+  const title = series ? series : "Series";
   const description = series
     ? `Browse every sermon in “${series}” — scripture, summaries, and transcripts.`
     : "Browse sermons by teaching series.";

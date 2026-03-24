@@ -7,6 +7,18 @@ import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { escapeRegExp, findTranscriptSnippets } from "@/lib/transcript-search";
 
+/** Google’s preview UI shows a “Pop out” control we can’t style; block clicks in the top-right and forbid popups. */
+function showPopoutClickShield(embedUrl: string): boolean {
+  return (
+    /drive\.google\.com\/file\/d\//.test(embedUrl) ||
+    /docs\.google\.com\/(document|spreadsheets|presentation)\//.test(embedUrl)
+  );
+}
+
+/** No allow-popups — stops Drive/Docs “Pop out” from opening a new window ([sandbox](https://developer.mozilla.org/en-US/docs/Web/HTML/Element/iframe#sandbox)). */
+const IFRAME_SANDBOX =
+  "allow-scripts allow-same-origin allow-forms allow-modals allow-downloads allow-presentation" as const;
+
 type DriveEmbedFrameProps = {
   embedUrl: string;
   /** Short label for iframe title / a11y */
@@ -223,14 +235,21 @@ export function DriveEmbedFrame({
             title={documentLabel}
             src={embedUrl}
             tabIndex={-1}
+            sandbox={IFRAME_SANDBOX}
             className={cn(
-              "absolute inset-0 w-full border-0",
+              "absolute inset-0 z-0 w-full border-0",
               expanded ? "h-full" : "min-h-[min(70vh,48rem)] h-full",
             )}
             loading="lazy"
             referrerPolicy="no-referrer-when-downgrade"
             allow="autoplay *; fullscreen *; encrypted-media *"
           />
+          {showPopoutClickShield(embedUrl) && (
+            <div
+              aria-hidden
+              className="pointer-events-auto absolute right-0 top-0 z-[1] h-14 w-24 touch-none sm:h-16 sm:w-28"
+            />
+          )}
         </div>
       </div>
     </div>

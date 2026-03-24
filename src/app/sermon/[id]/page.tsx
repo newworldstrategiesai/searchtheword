@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { STATIC_OG, staticOgImage } from "@/lib/seo";
 import { SermonDetail } from "@/components/sermon-detail";
+import { isUuid } from "@/lib/is-uuid";
 import { createPublicSupabaseClient } from "@/lib/supabase/server";
 import type { ScriptureRefRow, SermonWithKeywords } from "@/lib/types";
 
@@ -13,6 +14,9 @@ type PageProps = {
 
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
   const { id } = await params;
+  if (!isUuid(id)) {
+    return { title: "Sermon not found", robots: { index: false, follow: false } };
+  }
   const supabase = createPublicSupabaseClient();
   const { data } = await supabase
     .from("sermons")
@@ -61,6 +65,9 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
 
 export default async function SermonPage({ params }: PageProps) {
   const { id } = await params;
+  if (!isUuid(id)) {
+    notFound();
+  }
   const supabase = createPublicSupabaseClient();
 
   const { data: sermon, error } = await supabase.from("sermons").select("*").eq("id", id).maybeSingle();

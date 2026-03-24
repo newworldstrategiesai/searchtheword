@@ -24,7 +24,7 @@ export function SermonCard({ sermon, keywords = [] }: SermonCardProps) {
   const truncated = !hl && excerpt.length >= 220 ? `${excerpt}…` : excerpt;
 
   return (
-    <Card className="transition-shadow hover:shadow-md">
+    <Card className="scroll-mt-28 transition-shadow hover:shadow-md">
       <CardHeader className="space-y-1">
         <CardTitle className="text-xl leading-snug">
           <Link href={`/sermon/${sermon.id}`} className="hover:underline">
