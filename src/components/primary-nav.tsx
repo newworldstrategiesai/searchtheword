@@ -5,8 +5,13 @@ import { usePathname } from "next/navigation";
 import { Database, MessageSquare, Shield } from "lucide-react";
 import { cn } from "@/lib/utils";
 
-const links = [
-  { href: "/", label: "Search", icon: Database, match: (p: string) => p === "/" || p.startsWith("/search") || p.startsWith("/sermon") },
+export const PRIMARY_NAV_LINKS = [
+  {
+    href: "/",
+    label: "Search",
+    icon: Database,
+    match: (p: string) => p === "/" || p.startsWith("/search") || p.startsWith("/sermon"),
+  },
   { href: "/ask", label: "Ask AI", icon: MessageSquare, match: (p: string) => p.startsWith("/ask") },
   { href: "/admin", label: "Admin", icon: Shield, match: (p: string) => p.startsWith("/admin") },
 ] as const;
@@ -28,7 +33,7 @@ export function PrimaryNav({ className }: PrimaryNavProps) {
           className="flex w-max max-w-none flex-nowrap items-center gap-1 sm:w-auto sm:flex-wrap sm:gap-1.5 lg:w-auto lg:gap-2"
           aria-label="Main"
         >
-          {links.map(({ href, label, icon: Icon, match }) => {
+          {PRIMARY_NAV_LINKS.map(({ href, label, icon: Icon, match }) => {
             const active = match(pathname);
             return (
               <Link
@@ -50,5 +55,39 @@ export function PrimaryNav({ className }: PrimaryNavProps) {
         </nav>
       </div>
     </div>
+  );
+}
+
+type PrimaryNavDrawerProps = {
+  onNavigate?: () => void;
+  className?: string;
+};
+
+/** Full-width vertical links for mobile sheet menu */
+export function PrimaryNavDrawer({ onNavigate, className }: PrimaryNavDrawerProps) {
+  const pathname = usePathname();
+
+  return (
+    <nav className={cn("flex flex-col gap-0.5", className)} aria-label="Main">
+      {PRIMARY_NAV_LINKS.map(({ href, label, icon: Icon, match }) => {
+        const active = match(pathname);
+        return (
+          <Link
+            key={href}
+            href={href}
+            onClick={onNavigate}
+            className={cn(
+              "flex min-h-[3rem] items-center gap-3 rounded-xl px-3 py-2 text-base font-medium transition-colors",
+              active
+                ? "bg-primary/12 text-primary ring-1 ring-primary/20 dark:bg-primary/20"
+                : "text-foreground hover:bg-muted/90",
+            )}
+          >
+            <Icon className="size-5 shrink-0 opacity-80" aria-hidden />
+            {label}
+          </Link>
+        );
+      })}
+    </nav>
   );
 }
