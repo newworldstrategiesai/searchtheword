@@ -7,6 +7,7 @@ import { Separator } from "@/components/ui/separator";
 import { KeywordBadge } from "@/components/keyword-badge";
 import { DriveEmbedFrame } from "@/components/drive-embed-frame";
 import { getGoogleDriveEmbedInfo, isDriveFolderUrl } from "@/lib/google-drive-embed";
+import { seriesListHref } from "@/lib/series-url";
 
 function extractYoutubeId(url: string): string | null {
   try {
@@ -26,7 +27,7 @@ function extractYoutubeId(url: string): string | null {
   return null;
 }
 
-function MediaBlock({ url }: { url: string }) {
+function MediaBlock({ url, fullText }: { url: string; fullText?: string | null }) {
   const ytId = extractYoutubeId(url);
   if (ytId) {
     return (
@@ -52,7 +53,7 @@ function MediaBlock({ url }: { url: string }) {
   const driveEmbed = getGoogleDriveEmbedInfo(url);
   if (driveEmbed) {
     return (
-      <DriveEmbedFrame embedUrl={driveEmbed.embedUrl} documentLabel="Sermon media" />
+      <DriveEmbedFrame embedUrl={driveEmbed.embedUrl} documentLabel="Sermon media" fullText={fullText} />
     );
   }
   return (
@@ -83,11 +84,23 @@ type SermonDetailProps = {
   sermon: SermonWithKeywords;
 };
 
-function SourceDocumentSection({ url, title }: { url: string; title: string }) {
+function SourceDocumentSection({
+  url,
+  title,
+  fullText,
+}: {
+  url: string;
+  title: string;
+  fullText?: string | null;
+}) {
   const embed = getGoogleDriveEmbedInfo(url);
   if (embed) {
     return (
-      <DriveEmbedFrame embedUrl={embed.embedUrl} documentLabel={`${title} — source document`} />
+      <DriveEmbedFrame
+        embedUrl={embed.embedUrl}
+        documentLabel={`${title} — source document`}
+        fullText={fullText}
+      />
     );
   }
   if (isDriveFolderUrl(url)) {
@@ -163,8 +176,13 @@ export function SermonDetail({ sermon }: SermonDetailProps) {
         </div>
         {sermon.series && (
           <p className="mt-2 inline-flex items-center gap-1 text-sm text-muted-foreground">
-            <Library className="h-4 w-4" />
-            {sermon.series}
+            <Library className="h-4 w-4 shrink-0" aria-hidden />
+            <Link
+              href={seriesListHref(sermon.series)}
+              className="rounded-sm font-medium text-foreground underline-offset-4 transition-colors hover:text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
+              {sermon.series}
+            </Link>
           </p>
         )}
         {sermon.scripture_ref && !(sermon.scripture_refs && sermon.scripture_refs.length > 0) && (
@@ -192,14 +210,14 @@ export function SermonDetail({ sermon }: SermonDetailProps) {
       {drive && (
         <section className="space-y-3">
           <h2 className="text-sm font-medium text-muted-foreground">Source</h2>
-          <SourceDocumentSection url={drive} title={sermon.title} />
+          <SourceDocumentSection url={drive} title={sermon.title} fullText={sermon.full_text} />
         </section>
       )}
 
       {media && media !== drive && (
         <section className="space-y-2">
           <h2 className="text-sm font-medium text-muted-foreground">Media</h2>
-          <MediaBlock url={media} />
+          <MediaBlock url={media} fullText={sermon.full_text} />
         </section>
       )}
 

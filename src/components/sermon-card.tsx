@@ -4,6 +4,7 @@ import type { SermonSearchRow } from "@/lib/types";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { KeywordBadge } from "@/components/keyword-badge";
 import { sanitizeHeadlineHtml } from "@/lib/sanitize-headline";
+import { seriesListHref } from "@/lib/series-url";
 
 type SermonCardProps = {
   sermon: SermonSearchRow;
@@ -45,7 +46,15 @@ export function SermonCard({ sermon, keywords = [] }: SermonCardProps) {
             <span className="font-medium text-foreground">{sermon.scripture_ref}</span>
           )}
           {sermon.series && (
-            <span className="text-muted-foreground">Series: {sermon.series}</span>
+            <span className="text-muted-foreground">
+              Series:{" "}
+              <Link
+                href={seriesListHref(sermon.series)}
+                className="font-medium text-foreground underline-offset-2 hover:underline"
+              >
+                {sermon.series}
+              </Link>
+            </span>
           )}
         </CardDescription>
       </CardHeader>
