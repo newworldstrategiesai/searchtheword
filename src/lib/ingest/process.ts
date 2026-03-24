@@ -46,6 +46,23 @@ export type IngestResult = {
   errors: string[];
 };
 
+/** Progress events for streaming ingest UI (admin import). */
+export type IngestProgressEvent =
+  | { kind: "phase"; message: string }
+  | { kind: "parsed"; rowCount: number; fileKind: "xlsx" | "csv" }
+  | {
+      kind: "row";
+      dataRow: number;
+      totalRows: number;
+      sheetRow: number;
+      title: string;
+      detail: string;
+    };
+
+export type IngestOptions = {
+  onProgress?: (event: IngestProgressEvent) => void;
+};
+
 const HEADER_FIXES: Record<string, string> = {
   seconday_scriptures: "secondary_scriptures",
   secondary_scripture: "secondary_scriptures",
@@ -219,6 +236,46 @@ async function replaceScriptureRefs(
   }
 }
 
+export type SermonDerivedSyncInput = {
+  topics: string;
+  keywords: string;
+  core_doctrine: string | null;
+  primary_scripture_raw: string | null;
+  secondary_scriptures_raw: string | null;
+};
+
+/**
+ * Rebuilds `sermon_keywords` and `sermon_scripture_refs` from raw topic/keyword/scripture fields.
+ * Used by bulk ingest and admin sermon edit.
+ */
+export async function syncSermonDerivedRelations(
+  supabase: SupabaseClient,
+  sermonId: string,
+  opts: SermonDerivedSyncInput,
+  errors: string[],
+  rowLabel: string,
+): Promise<void> {
+  await supabase.from("sermon_keywords").delete().eq("sermon_id", sermonId);
+
+  for (const t of splitTagList(opts.topics)) {
+    await linkKeyword(supabase, sermonId, t, "topic", errors, rowLabel);
+  }
+  for (const k of splitTagList(opts.keywords)) {
+    await linkKeyword(supabase, sermonId, k, "keyword", errors, rowLabel);
+  }
+  if (opts.core_doctrine?.trim()) {
+    const d = opts.core_doctrine.trim().toLowerCase();
+    await linkKeyword(supabase, sermonId, d, "doctrine", errors, rowLabel);
+  }
+
+  await replaceScriptureRefs(
+    supabase,
+    sermonId,
+    opts.primary_scripture_raw?.trim() || null,
+    opts.secondary_scriptures_raw?.trim() || null,
+  );
+}
+
 function rowDate(row: Record<string, string>): string | null {
   const raw = row.date_delivered || row.date || "";
   if (!raw) return null;
@@ -237,23 +294,58 @@ function rowPreacher(row: Record<string, string>): string {
   return (row.speaker || row.preacher || "").trim();
 }
 
-export async function ingestRows(supabase: SupabaseClient, rows: Record<string, string>[]): Promise<IngestResult> {
+export async function ingestRows(
+  supabase: SupabaseClient,
+  rows: Record<string, string>[],
+  options?: IngestOptions,
+): Promise<IngestResult> {
+  const onProgress = options?.onProgress;
   const errors: string[] = [];
   let inserted = 0;
   let updated = 0;
+  const totalRows = rows.length;
 
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i]!;
     const title = rowTitle(row);
     const preacher = rowPreacher(row);
     const rowLabel = `Row ${i + 2}`;
+    const dataRow = i + 1;
+    const sheetRow = i + 2;
+    const displayTitle = title || "(missing title)";
+
+    onProgress?.({
+      kind: "row",
+      dataRow,
+      totalRows,
+      sheetRow,
+      title: displayTitle,
+      detail: "Reading row…",
+    });
 
     if (!title || !preacher) {
+      onProgress?.({
+        kind: "row",
+        dataRow,
+        totalRows,
+        sheetRow,
+        title: displayTitle,
+        detail: "Skipped — missing title or speaker/preacher",
+      });
       errors.push(`${rowLabel}: missing title or speaker/preacher`);
       continue;
     }
 
     const externalId = row.id?.trim() || null;
+    onProgress?.({
+      kind: "row",
+      dataRow,
+      totalRows,
+      sheetRow,
+      title,
+      detail: externalId ? "Matching external ID…" : "Inserting new sermon…",
+    });
+
     const date = rowDate(row);
     const primaryRaw = row.primary_scripture?.trim() || null;
     const secondaryRaw = row.secondary_scriptures?.trim() || null;
@@ -293,6 +385,14 @@ export async function ingestRows(supabase: SupabaseClient, rows: Record<string, 
         .eq("external_id", externalId)
         .maybeSingle();
       if (existing?.id) {
+        onProgress?.({
+          kind: "row",
+          dataRow,
+          totalRows,
+          sheetRow,
+          title,
+          detail: "Updating sermon row…",
+        });
         const { error: upErr } = await supabase.from("sermons").update(payload).eq("id", existing.id);
         if (upErr) {
           errors.push(`${rowLabel}: ${upErr.message}`);
@@ -305,6 +405,14 @@ export async function ingestRows(supabase: SupabaseClient, rows: Record<string, 
     }
 
     if (!sermonId) {
+      onProgress?.({
+        kind: "row",
+        dataRow,
+        totalRows,
+        sheetRow,
+        title,
+        detail: "Writing sermon to database…",
+      });
       const { data: sermon, error: serErr } = await supabase
         .from("sermons")
         .insert(payload)
@@ -325,29 +433,51 @@ export async function ingestRows(supabase: SupabaseClient, rows: Record<string, 
 
     const sid = sermonId;
 
-    for (const t of splitTagList(row.topics)) {
-      await linkKeyword(supabase, sid, t, "topic", errors, rowLabel);
-    }
-    for (const k of splitTagList(row.keywords)) {
-      await linkKeyword(supabase, sid, k, "keyword", errors, rowLabel);
-    }
-    if (row.core_doctrine?.trim()) {
-      const d = row.core_doctrine.trim().toLowerCase();
-      await linkKeyword(supabase, sid, d, "doctrine", errors, rowLabel);
-    }
+    onProgress?.({
+      kind: "row",
+      dataRow,
+      totalRows,
+      sheetRow,
+      title,
+      detail: "Linking topics, keywords, doctrine, and scripture…",
+    });
 
-    await replaceScriptureRefs(supabase, sid, primaryRaw, secondaryRaw);
+    await syncSermonDerivedRelations(
+      supabase,
+      sid,
+      {
+        topics: row.topics ?? "",
+        keywords: row.keywords ?? "",
+        core_doctrine: row.core_doctrine?.trim() || null,
+        primary_scripture_raw: primaryRaw,
+        secondary_scriptures_raw: secondaryRaw,
+      },
+      errors,
+      rowLabel,
+    );
   }
 
   return { inserted, updated, errors };
 }
 
-export async function ingestFromCsvString(supabase: SupabaseClient, csv: string): Promise<IngestResult> {
+export async function ingestFromCsvString(
+  supabase: SupabaseClient,
+  csv: string,
+  options?: IngestOptions,
+): Promise<IngestResult> {
+  options?.onProgress?.({ kind: "phase", message: "Parsing CSV…" });
   const rows = parseCsvContent(csv);
-  return ingestRows(supabase, rows);
+  options?.onProgress?.({ kind: "parsed", rowCount: rows.length, fileKind: "csv" });
+  return ingestRows(supabase, rows, options);
 }
 
-export async function ingestFromXlsxBuffer(supabase: SupabaseClient, buffer: ArrayBuffer | Buffer): Promise<IngestResult> {
+export async function ingestFromXlsxBuffer(
+  supabase: SupabaseClient,
+  buffer: ArrayBuffer | Buffer,
+  options?: IngestOptions,
+): Promise<IngestResult> {
+  options?.onProgress?.({ kind: "phase", message: "Parsing Excel workbook…" });
   const rows = parseXlsxBuffer(buffer);
-  return ingestRows(supabase, rows);
+  options?.onProgress?.({ kind: "parsed", rowCount: rows.length, fileKind: "xlsx" });
+  return ingestRows(supabase, rows, options);
 }

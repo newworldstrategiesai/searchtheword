@@ -1,4 +1,6 @@
+import type { Metadata } from "next";
 import Link from "next/link";
+import { STATIC_OG, staticOgImage } from "@/lib/seo";
 import { TopicCloud } from "@/components/topic-cloud";
 import { SermonCard } from "@/components/sermon-card";
 import { HomeHeroSearch } from "@/components/home-hero-search";
@@ -10,6 +12,28 @@ import { getKeywordsForSermonIds } from "@/lib/keywords-batch";
 import type { Keyword, SermonSearchRow } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
+
+const homeDescription =
+  "Search your church’s sermon archive by scripture, topic, speaker, or keyword — faithful teaching made easy to find for worship, study, and outreach.";
+
+export const metadata: Metadata = {
+  title: { absolute: "SearchTheWord — Sermon search for your church" },
+  description: homeDescription,
+  alternates: {
+    canonical: "/",
+  },
+  openGraph: {
+    title: "SearchTheWord — Sermon search for your church",
+    description: homeDescription,
+    url: "/",
+    images: [staticOgImage(STATIC_OG.home)],
+  },
+  twitter: {
+    title: "SearchTheWord — Sermon search for your church",
+    description: homeDescription,
+    images: [STATIC_OG.home],
+  },
+};
 
 export default async function HomePage() {
   let keywords: Keyword[] = [];

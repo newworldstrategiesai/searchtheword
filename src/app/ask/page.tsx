@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
 import { Bot, Send, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -47,8 +48,12 @@ export default function AskPage() {
       const json = (await res.json()) as { reply?: string; error?: string };
       const reply =
         json.reply ?? (json.error ? `Something went wrong: ${json.error}` : "No reply.");
+      if (json.error && !json.reply) {
+        toast.error("Assistant could not reply", { description: json.error });
+      }
       setMessages((m) => [...m, { role: "assistant", content: reply }]);
     } catch {
+      toast.error("Network error", { description: "Check your connection and try again." });
       setMessages((m) => [
         ...m,
         { role: "assistant", content: "Network error. Check your connection and try again." },

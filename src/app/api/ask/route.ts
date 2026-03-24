@@ -28,7 +28,7 @@ export async function POST(request: Request) {
   if (!key) {
     return NextResponse.json({
       reply:
-        "The AI assistant is not configured yet. Add OPENAI_API_KEY to your server environment (for example .env.local) to enable chat.\n\nUntil then, use Search to explore the sermon archive by topic, scripture, or keywords.",
+        "The assistant is not configured yet. Your administrator can add a server-side chat API key (for example in `.env.local`) to enable this feature.\n\nUntil then, use Search to explore the sermon archive by topic, scripture, or keywords.",
     });
   }
 
@@ -49,7 +49,7 @@ export async function POST(request: Request) {
 
   if (!res.ok) {
     const errText = await res.text();
-    console.error("OpenAI error:", res.status, errText);
+    console.error("Ask API chat error:", res.status, errText);
     return NextResponse.json({
       reply: "AI could not respond right now. Try again in a moment, or use Search to browse sermons.",
     });

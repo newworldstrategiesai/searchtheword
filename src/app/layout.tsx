@@ -3,6 +3,7 @@ import { Cormorant_Garamond, Geist_Mono, Source_Sans_3 } from "next/font/google"
 import "../../styles/globals.css";
 import { Header } from "@/components/header";
 import { ThemeProvider } from "@/components/theme-provider";
+import { CHURCH_SEO_KEYWORDS, getMetadataBase, STATIC_OG, staticOgImage } from "@/lib/seo";
 
 const fontBody = Source_Sans_3({
   variable: "--font-body",
@@ -22,12 +23,43 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+const siteDescription =
+  "Search and explore your church’s sermon archive by scripture, topic, speaker, or keyword — faithful teaching made discoverable for your congregation.";
+
 export const metadata: Metadata = {
+  metadataBase: getMetadataBase(),
   title: {
     default: "SearchTheWord",
     template: "%s · SearchTheWord",
   },
-  description: "Search sermons by topic, scripture, or natural language.",
+  description: siteDescription,
+  applicationName: "SearchTheWord",
+  authors: [{ name: "SearchTheWord" }],
+  keywords: [...CHURCH_SEO_KEYWORDS],
+  creator: "SearchTheWord",
+  openGraph: {
+    type: "website",
+    locale: "en_US",
+    url: "/",
+    siteName: "SearchTheWord",
+    title: "SearchTheWord — Sermon search for your church",
+    description: siteDescription,
+    images: [staticOgImage(STATIC_OG.home)],
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "SearchTheWord — Sermon search for your church",
+    description: siteDescription,
+    images: [STATIC_OG.home],
+  },
+  robots: {
+    index: true,
+    follow: true,
+  },
+  alternates: {
+    canonical: "/",
+  },
+  category: "religion",
 };
 
 export default function RootLayout({

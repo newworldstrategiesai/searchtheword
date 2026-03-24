@@ -1,4 +1,6 @@
+import type { Metadata } from "next";
 import { notFound } from "next/navigation";
+import { STATIC_OG, staticOgImage } from "@/lib/seo";
 import { SermonDetail } from "@/components/sermon-detail";
 import { createPublicSupabaseClient } from "@/lib/supabase/server";
 import type { ScriptureRefRow, SermonWithKeywords } from "@/lib/types";
@@ -8,6 +10,54 @@ export const dynamic = "force-dynamic";
 type PageProps = {
   params: Promise<{ id: string }>;
 };
+
+export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
+  const { id } = await params;
+  const supabase = createPublicSupabaseClient();
+  const { data } = await supabase
+    .from("sermons")
+    .select("title, preacher, date, summary, scripture_ref")
+    .eq("id", id)
+    .maybeSingle();
+
+  if (!data) {
+    return { title: "Sermon" };
+  }
+
+  const title = String(data.title ?? "Sermon");
+  const preacher = String(data.preacher ?? "");
+  const summary = (data.summary as string | null)?.replace(/\s+/g, " ").trim();
+  const scripture = (data.scripture_ref as string | null)?.trim();
+  const description =
+    summary?.slice(0, 165) ||
+    [title, preacher, scripture].filter(Boolean).join(" — ").slice(0, 180) ||
+    `${title} — sermon from SearchTheWord.`;
+
+  const url = `/sermon/${id}`;
+  const publishedTime =
+    data.date != null ? new Date(String(data.date)).toISOString() : undefined;
+
+  return {
+    title: title.length > 65 ? `${title.slice(0, 62)}…` : title,
+    description,
+    alternates: {
+      canonical: url,
+    },
+    openGraph: {
+      title,
+      description,
+      type: "article",
+      url,
+      images: [staticOgImage(STATIC_OG.sermon)],
+      ...(publishedTime ? { publishedTime } : {}),
+    },
+    twitter: {
+      title,
+      description,
+      images: [STATIC_OG.sermon],
+    },
+  };
+}
 
 export default async function SermonPage({ params }: PageProps) {
   const { id } = await params;

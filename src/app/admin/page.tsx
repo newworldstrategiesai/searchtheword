@@ -2,7 +2,11 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { Loader2 } from "lucide-react";
+import { toast } from "sonner";
 import { createClient } from "@/lib/supabase/client";
+import type { IngestProgressEvent } from "@/lib/ingest/process";
+import { consumeIngestNdjsonStream } from "@/lib/ingest-client";
 import { Button } from "@/components/ui/button";
 import { buttonVariants } from "@/lib/button-variants";
 import { cn } from "@/lib/utils";
@@ -11,58 +15,147 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
+type ImportLiveState = {
+  headline: string;
+  totalRows?: number;
+  currentRow?: number;
+  sheetRow?: number;
+  title?: string;
+  detail?: string;
+};
+
+function mergeImportLive(prev: ImportLiveState | null, event: IngestProgressEvent): ImportLiveState {
+  if (event.kind === "phase") {
+    return {
+      headline: event.message,
+      totalRows: prev?.totalRows,
+      currentRow: prev?.currentRow,
+      sheetRow: prev?.sheetRow,
+      title: prev?.title,
+      detail: prev?.detail,
+    };
+  }
+  if (event.kind === "parsed") {
+    return {
+      headline: `Found ${event.rowCount} data row${event.rowCount === 1 ? "" : "s"} (${event.fileKind.toUpperCase()})`,
+      totalRows: event.rowCount,
+      currentRow: 0,
+    };
+  }
+  return {
+    headline: "Importing rows",
+    totalRows: event.totalRows,
+    currentRow: event.dataRow,
+    sheetRow: event.sheetRow,
+    title: event.title,
+    detail: event.detail,
+  };
+}
+
+function maybeToastImportProgress(tid: string | number, event: IngestProgressEvent) {
+  if (event.kind === "phase") {
+    toast.loading("Importing…", { id: tid, description: event.message });
+    return;
+  }
+  if (event.kind === "parsed") {
+    toast.loading("Importing…", { id: tid, description: `Processing ${event.rowCount} rows…` });
+    return;
+  }
+  const { dataRow, totalRows, detail } = event;
+  if (dataRow === 1 || dataRow % 6 === 0 || dataRow === totalRows) {
+    toast.loading("Importing…", { id: tid, description: `Row ${dataRow}/${totalRows} · ${detail}` });
+  }
+}
+
 export default function AdminPage() {
   const [file, setFile] = useState<File | null>(null);
   const [pdfFile, setPdfFile] = useState<File | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [pdfStatus, setPdfStatus] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [importLive, setImportLive] = useState<ImportLiveState | null>(null);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!file) {
+      toast.error("No file selected", { description: "Choose a CSV or Excel file to import." });
       setStatus("Choose a CSV or Excel file.");
       return;
     }
     setLoading(true);
     setStatus(null);
+    setImportLive({ headline: "Sending file to server…", detail: file.name });
     const form = new FormData();
     form.append("file", file);
 
-    const res = await fetch("/api/ingest", {
-      method: "POST",
-      body: form,
-      credentials: "same-origin",
-    });
-    const json = (await res.json()) as { inserted?: number; errors?: string[]; error?: string };
-    setLoading(false);
-    if (!res.ok) {
-      setStatus(json.error ?? "Upload failed");
-      return;
+    const tid = toast.loading("Importing…", { description: file.name });
+
+    try {
+      const res = await fetch("/api/ingest", {
+        method: "POST",
+        body: form,
+        credentials: "same-origin",
+      });
+
+      if (!res.ok) {
+        const json = (await res.json().catch(() => ({}))) as { error?: string };
+        const msg = json.error ?? `Upload failed (${res.status})`;
+        toast.error("Import failed", { id: tid, description: msg });
+        setStatus(msg);
+        return;
+      }
+
+      if (!res.body) {
+        toast.error("Import failed", { id: tid, description: "No response body from server." });
+        setStatus("No response from server.");
+        return;
+      }
+
+      const json = await consumeIngestNdjsonStream(res.body, (event) => {
+        setImportLive((prev) => mergeImportLive(prev, event));
+        maybeToastImportProgress(tid, event);
+      });
+
+      const ins = json.inserted ?? 0;
+      const upd = json.updated ?? 0;
+      const notes = json.errors.length ? `Notes: ${json.errors.join("; ")}` : "";
+      toast.success("Import complete", {
+        id: tid,
+        description: `Inserted ${ins}, updated ${upd}.${notes ? ` ${notes}` : ""}`,
+      });
+      setStatus(
+        `Inserted ${ins}, updated ${upd}. ${json.errors.length ? `Notes: ${json.errors.join("; ")}` : ""}`,
+      );
+      setFile(null);
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Could not complete import.";
+      toast.error("Import failed", { id: tid, description: message });
+      setStatus(message);
+    } finally {
+      setLoading(false);
+      setImportLive(null);
     }
-    const ins = json.inserted ?? 0;
-    const upd = (json as { updated?: number }).updated ?? 0;
-    setStatus(
-      `Inserted ${ins}, updated ${upd}. ${(json.errors ?? []).length ? `Notes: ${json.errors!.join("; ")}` : ""}`,
-    );
-    setFile(null);
   }
 
   function onPdfPlaceholder(e: React.FormEvent) {
     e.preventDefault();
     if (!pdfFile) {
+      toast.error("No PDF selected", { description: "Choose a PDF file first." });
       setPdfStatus("Choose a PDF file.");
       return;
     }
-    setPdfStatus(
-      "PDF text extraction is not wired yet. Export transcript text from the PDF, then use the spreadsheet template (Title, Date, Series, Transcript, Category/Keywords) and upload as .xlsx or .csv.",
-    );
+    const msg =
+      "PDF text extraction is not wired yet. Export transcript text from the PDF, then use the spreadsheet template (Title, Date, Series, Transcript, Category/Keywords) and upload as .xlsx or .csv.";
+    toast.info("PDF queued (preview)", { description: msg });
+    setPdfStatus(msg);
     setPdfFile(null);
   }
 
   async function signOut() {
+    const t = toast.loading("Signing out…");
     const supabase = createClient();
     await supabase.auth.signOut();
+    toast.success("Signed out", { id: t, description: "Redirecting to home." });
     window.location.href = "/";
   }
 
@@ -76,9 +169,12 @@ export default function AdminPage() {
             Import sermons, follow the weekly SOP, and use the template fields below.
           </p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
           <Link href="/" className={cn(buttonVariants({ variant: "outline", size: "sm" }))}>
             Home
+          </Link>
+          <Link href="/admin/sermons" className={cn(buttonVariants({ variant: "outline", size: "sm" }))}>
+            All sermons
           </Link>
           <Button variant="ghost" size="sm" onClick={() => void signOut()}>
             Sign out
@@ -113,9 +209,57 @@ export default function AdminPage() {
                     onChange={(e) => setFile(e.target.files?.[0] ?? null)}
                   />
                 </div>
-                <Button type="submit" disabled={loading}>
-                  {loading ? "Uploading…" : "Upload & import"}
+                <Button type="submit" disabled={loading} className="gap-2">
+                  {loading ? (
+                    <>
+                      <Loader2 className="size-4 animate-spin" aria-hidden />
+                      Importing…
+                    </>
+                  ) : (
+                    "Upload & import"
+                  )}
                 </Button>
+
+                {loading && importLive && (
+                  <div
+                    className="rounded-lg border border-border bg-muted/40 p-4 dark:bg-muted/20"
+                    role="status"
+                    aria-live="polite"
+                  >
+                    <div className="flex items-start gap-3">
+                      <Loader2 className="mt-0.5 size-5 shrink-0 animate-spin text-primary" aria-hidden />
+                      <div className="min-w-0 flex-1 space-y-2">
+                        <p className="text-sm font-medium text-foreground">{importLive.headline}</p>
+                        {importLive.totalRows != null && importLive.currentRow != null && importLive.totalRows > 0 && (
+                          <>
+                            <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
+                              <div
+                                className="h-full bg-primary transition-[width] duration-200 ease-out"
+                                style={{
+                                  width: `${Math.min(100, (importLive.currentRow / importLive.totalRows) * 100)}%`,
+                                }}
+                              />
+                            </div>
+                            <p className="text-xs text-muted-foreground">
+                              Data row {importLive.currentRow} of {importLive.totalRows}
+                              {importLive.sheetRow != null ? ` · spreadsheet row ${importLive.sheetRow}` : ""}
+                            </p>
+                          </>
+                        )}
+                        {importLive.title && (
+                          <p className="truncate text-sm text-foreground" title={importLive.title}>
+                            <span className="text-muted-foreground">Current: </span>
+                            {importLive.title}
+                          </p>
+                        )}
+                        {importLive.detail && (
+                          <p className="text-sm text-muted-foreground">{importLive.detail}</p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 {status && <p className="text-sm text-muted-foreground">{status}</p>}
               </form>
             </CardContent>

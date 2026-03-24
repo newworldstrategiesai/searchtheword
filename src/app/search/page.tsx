@@ -1,4 +1,6 @@
+import type { Metadata } from "next";
 import { SermonCard } from "@/components/sermon-card";
+import { STATIC_OG, staticOgImage } from "@/lib/seo";
 import { EmptyState } from "@/components/empty-state";
 import { Pagination } from "@/components/pagination";
 import { SearchFilters } from "@/components/search-filters";
@@ -9,6 +11,28 @@ import { filterSermonResults } from "@/lib/filter-sermons";
 import type { SearchMode } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
+
+const searchDescription =
+  "Filter sermons by scripture, topic, speaker, series, and date — full-text and tag-aware search built for church libraries.";
+
+export const metadata: Metadata = {
+  title: "Search archive",
+  description: searchDescription,
+  alternates: {
+    canonical: "/search",
+  },
+  openGraph: {
+    title: "Search the sermon archive · SearchTheWord",
+    description: searchDescription,
+    url: "/search",
+    images: [staticOgImage(STATIC_OG.search)],
+  },
+  twitter: {
+    title: "Search the sermon archive · SearchTheWord",
+    description: searchDescription,
+    images: [STATIC_OG.search],
+  },
+};
 
 const PAGE_SIZE = 20;
 

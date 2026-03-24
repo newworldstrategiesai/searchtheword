@@ -80,7 +80,7 @@ Open [http://localhost:3000](http://localhost:3000).
    |------|--------|
    | `NEXT_PUBLIC_SUPABASE_URL` | Supabase **Project Settings → API → Project URL** |
    | `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Supabase **anon public** key |
-   | `OPENAI_API_KEY` | *(Optional)* For **Ask AI** chat in production |
+   | `OPENAI_API_KEY` | *(Optional)* Server-side key for the Ask AI feature in production |
 
    Use **Production** (and **Preview** if you want preview deployments to hit Supabase too). Do **not** commit `.env.local`; do not put the **service role** key in client-exposed env vars.
 
