@@ -10,6 +10,7 @@ export const dynamic = "force-dynamic";
 
 type PageProps = {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ q?: string | string[] }>;
 };
 
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
@@ -63,8 +64,12 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
   };
 }
 
-export default async function SermonPage({ params }: PageProps) {
+export default async function SermonPage({ params, searchParams }: PageProps) {
   const { id } = await params;
+  const sp = await searchParams;
+  const rawQ = sp.q;
+  const highlightQuery =
+    typeof rawQ === "string" ? rawQ : Array.isArray(rawQ) ? (rawQ[0] ?? "") : "";
   if (!isUuid(id)) {
     notFound();
   }
@@ -121,5 +126,5 @@ export default async function SermonPage({ params }: PageProps) {
     scripture_refs,
   };
 
-  return <SermonDetail sermon={payload} />;
+  return <SermonDetail sermon={payload} highlightQuery={highlightQuery} />;
 }

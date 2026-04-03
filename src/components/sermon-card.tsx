@@ -9,9 +9,16 @@ import { seriesListHref } from "@/lib/series-url";
 type SermonCardProps = {
   sermon: SermonSearchRow;
   keywords?: string[];
+  /** When set (e.g. from search results), sermon opens with transcript highlight for this query. */
+  highlightQuery?: string;
 };
 
-export function SermonCard({ sermon, keywords = [] }: SermonCardProps) {
+export function SermonCard({ sermon, keywords = [], highlightQuery }: SermonCardProps) {
+  const q = highlightQuery?.trim();
+  const sermonHref =
+    q && q.length > 0
+      ? `/sermon/${sermon.id}?q=${encodeURIComponent(q)}`
+      : `/sermon/${sermon.id}`;
   const hl =
     sermon.highlight_summary?.trim() ||
     sermon.highlight_body?.trim() ||
@@ -27,7 +34,7 @@ export function SermonCard({ sermon, keywords = [] }: SermonCardProps) {
     <Card className="scroll-mt-28 transition-shadow hover:shadow-md">
       <CardHeader className="space-y-1">
         <CardTitle className="text-xl leading-snug">
-          <Link href={`/sermon/${sermon.id}`} className="hover:underline">
+          <Link href={sermonHref} className="hover:underline">
             {sermon.title}
           </Link>
         </CardTitle>

@@ -9,6 +9,8 @@ import {
 } from "@/lib/ingest/normalize";
 import { parseScriptureRefToParts, splitScriptureRefs } from "@/lib/ingest/scripture-parse";
 
+import { scheduleSermonEmbeddingReindex } from "@/lib/embeddings/schedule-reindex";
+
 export type KeywordKind = "topic" | "keyword" | "doctrine" | "legacy";
 
 export type CsvRowInput = {
@@ -455,6 +457,13 @@ export async function ingestRows(
       errors,
       rowLabel,
     );
+
+    scheduleSermonEmbeddingReindex(supabase, {
+      id: sid,
+      title,
+      full_text: payload.full_text,
+      summary: payload.summary,
+    });
   }
 
   return { inserted, updated, errors };

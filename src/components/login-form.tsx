@@ -15,7 +15,7 @@ import { cn } from "@/lib/utils";
 export function LoginForm() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const redirect = searchParams.get("redirect") ?? "/admin";
+  const redirectParam = searchParams.get("redirect");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
@@ -31,7 +31,10 @@ export function LoginForm() {
       const supabase = createClient();
       loadingToast = toast.loading("Logging in…", { description: "Checking your credentials." });
 
-      const { error: signErr } = await supabase.auth.signInWithPassword({ email, password });
+      const { data: signData, error: signErr } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
 
       if (signErr) {
         toast.dismiss(loadingToast);
@@ -41,13 +44,17 @@ export function LoginForm() {
         return;
       }
 
+      const user = signData.user;
+      const isUserAdmin = user?.app_metadata?.role === "admin";
+      const destination = isUserAdmin ? "/admin" : (redirectParam ?? "/account");
+
       toast.success("Signed in", {
         id: loadingToast,
         description: "Loading your workspace…",
         duration: 2800,
       });
 
-      router.push(redirect);
+      router.push(destination);
       router.refresh();
     } catch (err) {
       if (loadingToast !== undefined) toast.dismiss(loadingToast);

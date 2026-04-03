@@ -1,3 +1,5 @@
+import { searchSermonsHybrid } from "@/lib/embeddings/hybrid-search";
+import { embedQuery, embeddingsConfigured } from "@/lib/embeddings/openai-embed";
 import { mapSearchRpcRow } from "@/lib/search";
 import type { SearchMode, SermonSearchRow } from "@/lib/types";
 import { createPublicSupabaseClient } from "@/lib/supabase/server";
@@ -12,7 +14,7 @@ export type SearchSermonsParams = {
   filterPreacher?: string;
 };
 
-export async function searchSermonsServer(
+async function searchSermonsClassic(
   params: SearchSermonsParams,
 ): Promise<{ results: SermonSearchRow[]; total: number }> {
   const { q, page, limit, mode = "all", filterSeries, filterDocumentType, filterPreacher } = params;
@@ -36,4 +38,36 @@ export async function searchSermonsServer(
   const total = rows.length ? Number(rows[0]!.total_count ?? 0) : 0;
   const results = rows.map(mapSearchRpcRow);
   return { results, total };
+}
+
+export async function searchSermonsServer(
+  params: SearchSermonsParams,
+): Promise<{ results: SermonSearchRow[]; total: number }> {
+  const { q, page, limit, mode = "all", filterSeries, filterDocumentType, filterPreacher } = params;
+
+  if (mode === "all" && q.trim() && embeddingsConfigured()) {
+    try {
+      const embedding = await embedQuery(q);
+      if (embedding) {
+        const supabase = createPublicSupabaseClient();
+        const hybrid = await searchSermonsHybrid({
+          supabase,
+          q,
+          page,
+          limit,
+          filterSeries,
+          filterDocumentType,
+          filterPreacher,
+          queryEmbedding: embedding,
+        });
+        if (hybrid) {
+          return hybrid;
+        }
+      }
+    } catch {
+      /* fall through to classic search */
+    }
+  }
+
+  return searchSermonsClassic(params);
 }

@@ -74,6 +74,7 @@ export default function AdminPage() {
   const [pdfStatus, setPdfStatus] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [importLive, setImportLive] = useState<ImportLiveState | null>(null);
+  const [reindexLoading, setReindexLoading] = useState(false);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -157,6 +158,42 @@ export default function AdminPage() {
     await supabase.auth.signOut();
     toast.success("Signed out", { id: t, description: "Redirecting to home." });
     window.location.href = "/";
+  }
+
+
+  async function onReindexEmbeddings() {
+    setReindexLoading(true);
+    const tid = toast.loading("Reindexing embeddings…", { description: "This may take several minutes." });
+    try {
+      const res = await fetch("/api/admin/reindex-embeddings", {
+        method: "POST",
+        credentials: "same-origin",
+      });
+      const json = (await res.json()) as {
+        ok?: boolean;
+        error?: string;
+        sermonsProcessed?: number;
+        chunksWritten?: number;
+        errors?: string[];
+      };
+      if (!res.ok) {
+        toast.error("Reindex failed", { id: tid, description: json.error ?? res.statusText });
+        return;
+      }
+      const errNote =
+        json.errors?.length ? ` Warnings: ${json.errors.slice(0, 3).join("; ")}` : "";
+      toast.success("Embeddings reindexed", {
+        id: tid,
+        description: `Processed ${json.sermonsProcessed ?? 0} sermons, ${json.chunksWritten ?? 0} chunks.${errNote}`,
+      });
+    } catch (e) {
+      toast.error("Reindex failed", {
+        id: tid,
+        description: e instanceof Error ? e.message : "Unknown error",
+      });
+    } finally {
+      setReindexLoading(false);
+    }
   }
 
   return (
@@ -262,6 +299,35 @@ export default function AdminPage() {
 
                 {status && <p className="text-sm text-muted-foreground">{status}</p>}
               </form>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Semantic search &amp; Ask (embeddings)</CardTitle>
+              <CardDescription>
+                Rebuild vector chunks for all sermons so Search (mode &quot;All&quot;) can blend semantic matches
+                and Ask can retrieve transcript excerpts. Requires{" "}
+                <code className="rounded bg-muted px-1">OPENAI_API_KEY</code> on the server.
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <Button
+                type="button"
+                variant="secondary"
+                disabled={reindexLoading}
+                className="gap-2"
+                onClick={() => void onReindexEmbeddings()}
+              >
+                {reindexLoading ? (
+                  <>
+                    <Loader2 className="size-4 animate-spin" aria-hidden />
+                    Reindexing…
+                  </>
+                ) : (
+                  "Reindex all embeddings"
+                )}
+              </Button>
             </CardContent>
           </Card>
 

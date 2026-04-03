@@ -159,7 +159,11 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
             <ul className="space-y-4">
               {results.map((s) => (
                 <li key={s.id}>
-                  <SermonCard sermon={s} keywords={kwMap.get(s.id) ?? []} />
+                  <SermonCard
+                    sermon={s}
+                    keywords={kwMap.get(s.id) ?? []}
+                    highlightQuery={q.trim() ? q : undefined}
+                  />
                 </li>
               ))}
             </ul>

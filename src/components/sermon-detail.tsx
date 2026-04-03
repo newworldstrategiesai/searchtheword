@@ -6,6 +6,8 @@ import { cn } from "@/lib/utils";
 import { Separator } from "@/components/ui/separator";
 import { KeywordBadge } from "@/components/keyword-badge";
 import { DriveEmbedFrame } from "@/components/drive-embed-frame";
+import { TranscriptWithSearchContext } from "@/components/transcript-with-search-context";
+import { SearchContextFallback } from "@/components/search-context-fallback";
 import { getGoogleDriveEmbedInfo, isDriveFolderUrl } from "@/lib/google-drive-embed";
 import { seriesListHref } from "@/lib/series-url";
 
@@ -27,7 +29,15 @@ function extractYoutubeId(url: string): string | null {
   return null;
 }
 
-function MediaBlock({ url, fullText }: { url: string; fullText?: string | null }) {
+function MediaBlock({
+  url,
+  fullText,
+  initialTranscriptSearch,
+}: {
+  url: string;
+  fullText?: string | null;
+  initialTranscriptSearch?: string | null;
+}) {
   const ytId = extractYoutubeId(url);
   if (ytId) {
     return (
@@ -53,7 +63,12 @@ function MediaBlock({ url, fullText }: { url: string; fullText?: string | null }
   const driveEmbed = getGoogleDriveEmbedInfo(url);
   if (driveEmbed) {
     return (
-      <DriveEmbedFrame embedUrl={driveEmbed.embedUrl} documentLabel="Sermon media" fullText={fullText} />
+      <DriveEmbedFrame
+        embedUrl={driveEmbed.embedUrl}
+        documentLabel="Sermon media"
+        fullText={fullText}
+        initialTranscriptSearch={initialTranscriptSearch}
+      />
     );
   }
   return (
@@ -82,16 +97,20 @@ function formatRef(r: NonNullable<SermonWithKeywords["scripture_refs"]>[0]): str
 
 type SermonDetailProps = {
   sermon: SermonWithKeywords;
+  /** From `?q=` when opening a sermon from search; highlights and scrolls in transcript. */
+  highlightQuery?: string;
 };
 
 function SourceDocumentSection({
   url,
   title,
   fullText,
+  initialTranscriptSearch,
 }: {
   url: string;
   title: string;
   fullText?: string | null;
+  initialTranscriptSearch?: string | null;
 }) {
   const embed = getGoogleDriveEmbedInfo(url);
   if (embed) {
@@ -100,6 +119,7 @@ function SourceDocumentSection({
         embedUrl={embed.embedUrl}
         documentLabel={`${title} — source document`}
         fullText={fullText}
+        initialTranscriptSearch={initialTranscriptSearch}
       />
     );
   }
@@ -140,12 +160,27 @@ function SourceDocumentSection({
   );
 }
 
-export function SermonDetail({ sermon }: SermonDetailProps) {
+export function SermonDetail({ sermon, highlightQuery = "" }: SermonDetailProps) {
   const drive = sermon.google_drive_url;
   const media = sermon.media_url;
+  const transcriptSearch =
+    highlightQuery.trim().length >= 2 ? highlightQuery.trim() : null;
+  const scriptureFallbackId =
+    sermon.scripture_refs && sermon.scripture_refs.length > 0
+      ? "sermon-scripture-refs"
+      : sermon.scripture_ref
+        ? "sermon-scripture-ref"
+        : undefined;
+
+  const hasFullText = Boolean(sermon.full_text?.trim());
 
   return (
     <article className="mx-auto max-w-3xl space-y-8 px-4 py-8">
+      <SearchContextFallback
+        query={highlightQuery}
+        hasFullText={hasFullText}
+        fallbackScrollId={scriptureFallbackId}
+      />
       <div>
         <Link
           href="/search"
@@ -186,10 +221,18 @@ export function SermonDetail({ sermon }: SermonDetailProps) {
           </p>
         )}
         {sermon.scripture_ref && !(sermon.scripture_refs && sermon.scripture_refs.length > 0) && (
-          <p className="mt-2 text-sm font-medium text-foreground">{sermon.scripture_ref}</p>
+          <p
+            id="sermon-scripture-ref"
+            className="scroll-mt-28 mt-2 text-sm font-medium text-foreground"
+          >
+            {sermon.scripture_ref}
+          </p>
         )}
         {sermon.scripture_refs && sermon.scripture_refs.length > 0 && (
-          <ul className="mt-2 list-inside list-disc text-sm text-foreground">
+          <ul
+            id="sermon-scripture-refs"
+            className="scroll-mt-28 mt-2 list-inside list-disc text-sm text-foreground"
+          >
             {sermon.scripture_refs.map((r, i) => (
               <li key={`${r.raw}-${i}`}>
                 <span className="text-muted-foreground">({r.ref_kind})</span> {formatRef(r)}
@@ -210,14 +253,23 @@ export function SermonDetail({ sermon }: SermonDetailProps) {
       {drive && (
         <section className="space-y-3">
           <h2 className="text-sm font-medium text-muted-foreground">Source</h2>
-          <SourceDocumentSection url={drive} title={sermon.title} fullText={sermon.full_text} />
+          <SourceDocumentSection
+            url={drive}
+            title={sermon.title}
+            fullText={sermon.full_text}
+            initialTranscriptSearch={transcriptSearch}
+          />
         </section>
       )}
 
       {media && media !== drive && (
         <section className="space-y-2">
           <h2 className="text-sm font-medium text-muted-foreground">Media</h2>
-          <MediaBlock url={media} fullText={sermon.full_text} />
+          <MediaBlock
+            url={media}
+            fullText={sermon.full_text}
+            initialTranscriptSearch={transcriptSearch}
+          />
         </section>
       )}
 
@@ -238,11 +290,13 @@ export function SermonDetail({ sermon }: SermonDetailProps) {
       )}
 
       {sermon.full_text && (
-        <section className="space-y-2">
+        <section className="scroll-mt-28 space-y-2">
           <h2 className="text-lg font-semibold">Full text</h2>
-          <div className="prose prose-neutral dark:prose-invert max-w-none whitespace-pre-wrap text-muted-foreground">
-            {sermon.full_text}
-          </div>
+          <TranscriptWithSearchContext
+            text={sermon.full_text}
+            query={highlightQuery}
+            fallbackScrollId={scriptureFallbackId}
+          />
         </section>
       )}
 

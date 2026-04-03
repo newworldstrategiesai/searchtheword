@@ -25,6 +25,8 @@ type DriveEmbedFrameProps = {
   documentLabel?: string;
   /** When set, fullscreen search matches against this text (e.g. sermon full_text). */
   fullText?: string | null;
+  /** From sermon `?q=` — opens fullscreen once and prefills transcript search (min 2 chars). */
+  initialTranscriptSearch?: string | null;
   className?: string;
 };
 
@@ -51,6 +53,7 @@ export function DriveEmbedFrame({
   embedUrl,
   documentLabel = "Sermon document",
   fullText,
+  initialTranscriptSearch = null,
   className,
 }: DriveEmbedFrameProps) {
   const [expanded, setExpanded] = useState(false);
@@ -58,9 +61,18 @@ export function DriveEmbedFrame({
   const [showFindHint, setShowFindHint] = useState(false);
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const searchId = useId();
+  const didApplyInitialSearch = useRef(false);
   const exit = useCallback(() => setExpanded(false), []);
 
   const hasTranscript = Boolean(fullText?.trim());
+
+  useEffect(() => {
+    const seed = initialTranscriptSearch?.trim() ?? "";
+    if (seed.length < 2 || !hasTranscript || didApplyInitialSearch.current) return;
+    didApplyInitialSearch.current = true;
+    setSearchQuery(seed);
+    setExpanded(true);
+  }, [initialTranscriptSearch, hasTranscript]);
 
   const transcriptSnippets = useMemo(() => {
     if (!expanded || !hasTranscript || searchQuery.trim().length < 2) return [];
