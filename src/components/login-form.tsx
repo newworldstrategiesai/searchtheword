@@ -54,9 +54,11 @@ export function LoginForm() {
         duration: 2800,
       });
 
+      setLoading(false);
       router.push(destination);
       router.refresh();
     } catch (err) {
+      setLoading(false);
       if (loadingToast !== undefined) toast.dismiss(loadingToast);
       const message = err instanceof Error ? err.message : "Something went wrong.";
       toast.error("Sign-in unavailable", { description: message });

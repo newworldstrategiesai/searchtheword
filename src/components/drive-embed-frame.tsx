@@ -6,6 +6,7 @@ import { buttonVariants } from "@/lib/button-variants";
 import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { escapeRegExp, findTranscriptSnippets } from "@/lib/transcript-search";
+import { TranscriptWithSearchContext } from "@/components/transcript-with-search-context";
 
 /** Google’s preview UI shows a “Pop out” control we can’t style; block clicks in the top-right and forbid popups. */
 function showPopoutClickShield(embedUrl: string): boolean {
@@ -59,6 +60,7 @@ export function DriveEmbedFrame({
   const [expanded, setExpanded] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [showFindHint, setShowFindHint] = useState(false);
+  const [viewMode, setViewMode] = useState<"document" | "transcript">("document");
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const searchId = useId();
   const didApplyInitialSearch = useRef(false);
@@ -72,6 +74,7 @@ export function DriveEmbedFrame({
     didApplyInitialSearch.current = true;
     setSearchQuery(seed);
     setExpanded(true);
+    setViewMode("transcript");
   }, [initialTranscriptSearch, hasTranscript]);
 
   const transcriptSnippets = useMemo(() => {
@@ -80,10 +83,11 @@ export function DriveEmbedFrame({
   }, [expanded, fullText, hasTranscript, searchQuery]);
 
   const focusIframeForBrowserFind = useCallback(() => {
+    if (viewMode !== "document") return;
     iframeRef.current?.focus();
     setShowFindHint(true);
     window.setTimeout(() => setShowFindHint(false), 10_000);
-  }, []);
+  }, [viewMode]);
 
   useEffect(() => {
     if (!expanded) return;
@@ -98,6 +102,7 @@ export function DriveEmbedFrame({
     if (!expanded) {
       setSearchQuery("");
       setShowFindHint(false);
+      setViewMode("document");
     }
   }, [expanded]);
 
@@ -157,13 +162,38 @@ export function DriveEmbedFrame({
       {expanded && (
         <div className="flex shrink-0 flex-col gap-2 border-b border-border bg-muted/40 pt-[max(0.75rem,env(safe-area-inset-top))] shadow-sm dark:bg-muted/20">
           <div className="flex flex-col gap-3 px-4 pb-3 md:flex-row md:items-center md:gap-4">
-            <p className="min-w-0 shrink-0 truncate text-sm font-medium text-foreground md:max-w-[min(36vw,14rem)] lg:max-w-xs">
-              {documentLabel}
-            </p>
+            <div className="min-w-0 shrink-0 md:max-w-[min(36vw,14rem)] lg:max-w-xs">
+              <p className="truncate text-sm font-medium text-foreground">
+                {documentLabel}
+              </p>
+              {hasTranscript && (
+                <div className="mt-1 flex items-center gap-1">
+                  <button
+                    onClick={() => setViewMode("document")}
+                    className={cn(
+                      "text-[10px] font-bold uppercase tracking-wider transition-colors",
+                      viewMode === "document" ? "text-primary" : "text-muted-foreground hover:text-foreground",
+                    )}
+                  >
+                    Document
+                  </button>
+                  <span className="text-[10px] text-muted-foreground/40">/</span>
+                  <button
+                    onClick={() => setViewMode("transcript")}
+                    className={cn(
+                      "text-[10px] font-bold uppercase tracking-wider transition-colors",
+                      viewMode === "transcript" ? "text-primary" : "text-muted-foreground hover:text-foreground",
+                    )}
+                  >
+                    Transcript
+                  </button>
+                </div>
+              )}
+            </div>
             <div className="flex min-w-0 flex-1 flex-wrap items-center gap-2" data-document-search>
               <div className="relative min-w-0 flex-1 md:max-w-xl">
                 <label htmlFor={searchId} className="sr-only">
-                  {hasTranscript ? "Search sermon transcript" : "Find in embedded document"}
+                  {viewMode === "transcript" ? "Search sermon transcript" : "Find in embedded document"}
                 </label>
                 <Search
                   className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground"
@@ -175,12 +205,12 @@ export function DriveEmbedFrame({
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
                   onKeyDown={(e) => {
-                    if (e.key === "Enter" && !hasTranscript) {
+                    if (e.key === "Enter" && viewMode === "document") {
                       e.preventDefault();
                       focusIframeForBrowserFind();
                     }
                   }}
-                  placeholder={hasTranscript ? "Search transcript…" : "Find in document…"}
+                  placeholder={viewMode === "transcript" ? "Search transcript…" : "Find in document…"}
                   className="h-9 pl-9"
                   autoComplete="off"
                 />
@@ -199,31 +229,35 @@ export function DriveEmbedFrame({
               </button>
             </div>
           </div>
-          {showFindHint && !hasTranscript && (
+          {showFindHint && viewMode === "document" && (
             <p className="border-t border-border/60 px-4 pb-3 text-xs text-muted-foreground dark:border-border/40">
               Document focused — use ⌘F (Mac) or Ctrl+F (Windows) to search inside the file.
             </p>
           )}
-          {hasTranscript && searchQuery.trim().length >= 2 && (
+          {viewMode === "document" && hasTranscript && searchQuery.trim().length >= 2 && (
             <div className="border-t border-border/60 bg-muted/30 px-4 py-3 dark:border-border/40 dark:bg-muted/15">
-              {transcriptSnippets.length === 0 ? (
-                <p className="text-xs text-muted-foreground">No matches in the saved transcript.</p>
-              ) : (
-                <>
-                  <p className="mb-2 text-xs font-medium text-muted-foreground">
-                    {transcriptSnippets.length} match{transcriptSnippets.length === 1 ? "" : "es"} in transcript
-                  </p>
-                  <ul className="max-h-36 space-y-2 overflow-y-auto text-sm leading-snug">
-                    {transcriptSnippets.map((snippet, i) => (
-                      <li
-                        key={i}
-                        className="rounded-md border border-border/70 bg-background/90 px-3 py-2 text-foreground shadow-sm dark:bg-background/60"
-                      >
-                        {highlightSnippet(snippet, searchQuery)}
-                      </li>
-                    ))}
-                  </ul>
-                </>
+              <div className="mb-2 flex items-center justify-between">
+                <p className="text-xs font-medium text-muted-foreground">
+                  {transcriptSnippets.length} match{transcriptSnippets.length === 1 ? "" : "es"} in transcript
+                </p>
+                <button 
+                  onClick={() => setViewMode("transcript")}
+                  className="text-[10px] font-semibold text-primary hover:underline"
+                >
+                  View in transcript
+                </button>
+              </div>
+              {transcriptSnippets.length > 0 && (
+                <ul className="max-h-36 space-y-2 overflow-y-auto text-sm leading-snug">
+                  {transcriptSnippets.map((snippet, i) => (
+                    <li
+                      key={i}
+                      className="rounded-md border border-border/70 bg-background/90 px-3 py-2 text-foreground shadow-sm dark:bg-background/60"
+                    >
+                      {highlightSnippet(snippet, searchQuery)}
+                    </li>
+                  ))}
+                </ul>
               )}
             </div>
           )}
@@ -239,28 +273,39 @@ export function DriveEmbedFrame({
         )}
       >
         <div
-          className={cn("relative w-full", expanded && "min-h-0 flex-1")}
+          className={cn("relative w-full overflow-y-auto", expanded && "min-h-0 flex-1")}
           style={expanded ? undefined : { minHeight: "min(70vh, 48rem)" }}
         >
-          <iframe
-            ref={iframeRef}
-            title={documentLabel}
-            src={embedUrl}
-            tabIndex={-1}
-            sandbox={IFRAME_SANDBOX}
-            className={cn(
-              "absolute inset-0 z-0 w-full border-0",
-              expanded ? "h-full" : "min-h-[min(70vh,48rem)] h-full",
-            )}
-            loading="lazy"
-            referrerPolicy="no-referrer-when-downgrade"
-            allow="autoplay *; fullscreen *; encrypted-media *"
-          />
-          {showPopoutClickShield(embedUrl) && (
-            <div
-              aria-hidden
-              className="pointer-events-auto absolute right-0 top-0 z-[1] h-14 w-24 touch-none sm:h-16 sm:w-28"
-            />
+          {expanded && viewMode === "transcript" && hasTranscript ? (
+            <div className="mx-auto max-w-3xl px-6 py-8">
+              <TranscriptWithSearchContext 
+                text={fullText!}
+                query={searchQuery}
+              />
+            </div>
+          ) : (
+            <>
+              <iframe
+                ref={iframeRef}
+                title={documentLabel}
+                src={embedUrl}
+                tabIndex={-1}
+                sandbox={IFRAME_SANDBOX}
+                className={cn(
+                  "absolute inset-0 z-0 w-full border-0",
+                  expanded ? "h-full" : "min-h-[min(70vh,48rem)] h-full",
+                )}
+                loading="lazy"
+                referrerPolicy="no-referrer-when-downgrade"
+                allow="autoplay *; fullscreen *; encrypted-media *"
+              />
+              {showPopoutClickShield(embedUrl) && (
+                <div
+                  aria-hidden
+                  className="pointer-events-auto absolute right-0 top-0 z-[1] h-14 w-24 touch-none sm:h-16 sm:w-28"
+                />
+              )}
+            </>
           )}
         </div>
       </div>

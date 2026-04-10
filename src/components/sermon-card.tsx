@@ -81,6 +81,20 @@ export function SermonCard({ sermon, keywords = [], highlightQuery }: SermonCard
             ))}
           </div>
         )}
+        {q && (
+          <p className="border-t border-border/60 pt-3 text-sm dark:border-border/40">
+            <Link
+              href={sermonHref}
+              className="font-medium text-primary underline-offset-4 transition-colors hover:text-primary/90 hover:underline"
+            >
+              Read more
+            </Link>
+            <span className="text-muted-foreground">
+              {" "}
+              — opens the sermon and scrolls to your search in the saved transcript when available.
+            </span>
+          </p>
+        )}
       </CardContent>
     </Card>
   );

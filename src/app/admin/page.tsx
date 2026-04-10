@@ -75,6 +75,7 @@ export default function AdminPage() {
   const [loading, setLoading] = useState(false);
   const [importLive, setImportLive] = useState<ImportLiveState | null>(null);
   const [reindexLoading, setReindexLoading] = useState(false);
+  const [backfillLoading, setBackfillLoading] = useState(false);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -193,6 +194,48 @@ export default function AdminPage() {
       });
     } finally {
       setReindexLoading(false);
+    }
+  }
+
+  async function onBackfillFullText() {
+    setBackfillLoading(true);
+    const tid = toast.loading("Pulling text from Google…", {
+      description: "Exports native Docs/Sheets/Slides via Drive API (up to 15 per run).",
+    });
+    try {
+      const res = await fetch("/api/admin/backfill-full-text", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({ limit: 15 }),
+      });
+      const json = (await res.json()) as {
+        ok?: boolean;
+        error?: string;
+        results?: Array<{ id: string; status: string; detail?: string }>;
+        serviceAccountEmail?: string | null;
+        note?: string;
+      };
+      if (!res.ok) {
+        toast.error("Backfill failed", { id: tid, description: json.error ?? res.statusText });
+        return;
+      }
+      const r = json.results ?? [];
+      const u = r.filter((x) => x.status === "updated").length;
+      const e = r.filter((x) => x.status === "error").length;
+      const s = r.filter((x) => x.status === "skipped").length;
+      const errSample = r.find((x) => x.status === "error")?.detail;
+      toast.success("Backfill batch finished", {
+        id: tid,
+        description: `Updated ${u}, skipped ${s}, errors ${e}.${errSample ? ` First error: ${errSample.slice(0, 120)}${errSample.length > 120 ? "…" : ""}` : ""} Run again for more rows.`,
+      });
+    } catch (e) {
+      toast.error("Backfill failed", {
+        id: tid,
+        description: e instanceof Error ? e.message : "Unknown error",
+      });
+    } finally {
+      setBackfillLoading(false);
     }
   }
 
@@ -328,6 +371,44 @@ export default function AdminPage() {
                   "Reindex all embeddings"
                 )}
               </Button>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Backfill transcript from Google Drive</CardTitle>
+              <CardDescription>
+                For sermons that have a <code className="rounded bg-muted px-1">Source document URL</code> or Drive{" "}
+                <code className="rounded bg-muted px-1">media_url</code> but empty{" "}
+                <code className="rounded bg-muted px-1">full_text</code>, pull plain text from{" "}
+                <strong>native</strong> Google Docs, Sheets, or Slides. PDFs and other file types cannot be exported as
+                text automatically — paste a transcript manually or convert to Google Docs first. Set{" "}
+                <code className="rounded bg-muted px-1">GOOGLE_SERVICE_ACCOUNT_JSON</code> on the server and share each
+                file (or folder) with that service account&apos;s <code className="rounded bg-muted px-1">client_email</code>
+                .
+              </CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <Button
+                type="button"
+                variant="secondary"
+                disabled={backfillLoading}
+                className="gap-2"
+                onClick={() => void onBackfillFullText()}
+              >
+                {backfillLoading ? (
+                  <>
+                    <Loader2 className="size-4 animate-spin" aria-hidden />
+                    Backfilling…
+                  </>
+                ) : (
+                  "Backfill full_text from Google (batch)"
+                )}
+              </Button>
+              <p className="text-xs text-muted-foreground">
+                Processes up to 15 sermons per click. After backfill, run &quot;Reindex all embeddings&quot; if you use
+                semantic search (or wait — each updated row triggers a background reindex when OpenAI is configured).
+              </p>
             </CardContent>
           </Card>
 

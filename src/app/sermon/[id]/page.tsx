@@ -68,8 +68,9 @@ export default async function SermonPage({ params, searchParams }: PageProps) {
   const { id } = await params;
   const sp = await searchParams;
   const rawQ = sp.q;
-  const highlightQuery =
-    typeof rawQ === "string" ? rawQ : Array.isArray(rawQ) ? (rawQ[0] ?? "") : "";
+  const highlightQuery = (
+    typeof rawQ === "string" ? rawQ : Array.isArray(rawQ) ? (rawQ[0] ?? "") : ""
+  ).trim();
   if (!isUuid(id)) {
     notFound();
   }

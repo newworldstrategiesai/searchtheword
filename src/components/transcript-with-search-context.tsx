@@ -1,7 +1,9 @@
 "use client";
 
-import { useEffect, useId, useMemo, useRef, type ReactNode, type RefObject } from "react";
+import { useEffect, useId, useMemo, useState, ReactNode } from "react";
+import { ChevronDown, ChevronUp, Search } from "lucide-react";
 import { escapeRegExp } from "@/lib/transcript-search";
+import { Button } from "@/components/ui/button";
 
 type MatchPlan =
   | { kind: "none"; needle: null }
@@ -27,35 +29,35 @@ function planMatch(text: string, rawQuery: string): MatchPlan {
   return { kind: "none", needle: null };
 }
 
-function renderHighlighted(text: string, needle: string, firstMarkRef: RefObject<HTMLElement | null>) {
+function renderHighlighted(text: string, needle: string, matchClass: string) {
   const re = new RegExp(escapeRegExp(needle), "gi");
   const nodes: ReactNode[] = [];
   let last = 0;
   let m: RegExpExecArray | null;
-  let first = true;
+  let count = 0;
   const r = new RegExp(re.source, re.flags);
   while ((m = r.exec(text)) !== null) {
     if (m.index > last) {
       nodes.push(text.slice(last, m.index));
     }
     const hit = m[0];
+    const index = count++;
     nodes.push(
       <mark
         key={`${m.index}-${hit}`}
-        ref={first ? firstMarkRef : undefined}
-        className="scroll-mt-28 rounded-sm bg-primary/20 text-foreground dark:bg-primary/25"
+        data-match-index={index}
+        className={matchClass}
       >
         {hit}
       </mark>,
     );
-    first = false;
     last = m.index + hit.length;
     if (hit.length === 0) r.lastIndex++;
   }
   if (last < text.length) {
     nodes.push(text.slice(last));
   }
-  return nodes;
+  return { nodes, count };
 }
 
 type TranscriptWithSearchContextProps = {
@@ -71,20 +73,44 @@ export function TranscriptWithSearchContext({
   fallbackScrollId,
 }: TranscriptWithSearchContextProps) {
   const liveId = useId();
-  const firstMarkRef = useRef<HTMLElement | null>(null);
+  const [currentMatchIndex, setCurrentMatchIndex] = useState(0);
+  const [totalMatches, setTotalMatches] = useState(0);
+
   const plan = useMemo(() => planMatch(text, query), [text, query]);
   const hasQuery = query.trim().length > 0;
   const hasMatch = plan.kind === "literal" && plan.needle !== null;
 
+  const matchClassName = "scroll-mt-32 rounded-sm bg-primary/20 text-foreground transition-colors duration-200 data-[active=true]:bg-primary data-[active=true]:text-primary-foreground dark:bg-primary/25 dark:data-[active=true]:bg-primary/40";
+
+  const { nodes, count } = useMemo(() => {
+    if (!hasMatch) return { nodes: [text], count: 0 };
+    return renderHighlighted(text, plan.needle!, matchClassName);
+  }, [text, plan, hasMatch, matchClassName]);
+
   useEffect(() => {
-    if (!hasQuery || !hasMatch) return;
-    const el = firstMarkRef.current;
-    if (!el) return;
-    const id = window.requestAnimationFrame(() => {
+    setTotalMatches(count);
+    setCurrentMatchIndex(0);
+  }, [count]);
+
+  const scrollToMatch = (index: number) => {
+    const el = document.querySelector(`mark[data-match-index="${index}"]`);
+    if (el) {
+      // Clear previous active state
+      document.querySelectorAll('mark[data-match-index]').forEach(m => m.removeAttribute('data-active'));
+      // Set new active state
+      el.setAttribute('data-active', 'true');
       el.scrollIntoView({ block: "center", behavior: "smooth" });
+    }
+  };
+
+  useEffect(() => {
+    if (!hasQuery || !hasMatch || count === 0) return;
+    // Initial scroll to first match
+    const tid = window.requestAnimationFrame(() => {
+      scrollToMatch(0);
     });
-    return () => window.cancelAnimationFrame(id);
-  }, [hasQuery, hasMatch, text, plan]);
+    return () => window.cancelAnimationFrame(tid);
+  }, [hasQuery, hasMatch, count]);
 
   useEffect(() => {
     if (!hasQuery || hasMatch || !fallbackScrollId) return;
@@ -94,6 +120,18 @@ export function TranscriptWithSearchContext({
       el.scrollIntoView({ block: "start", behavior: "smooth" });
     });
   }, [hasQuery, hasMatch, fallbackScrollId]);
+
+  const handleNext = () => {
+    const next = (currentMatchIndex + 1) % totalMatches;
+    setCurrentMatchIndex(next);
+    scrollToMatch(next);
+  };
+
+  const handlePrev = () => {
+    const prev = (currentMatchIndex - 1 + totalMatches) % totalMatches;
+    setCurrentMatchIndex(prev);
+    scrollToMatch(prev);
+  };
 
   if (!hasQuery) {
     return (
@@ -118,15 +156,50 @@ export function TranscriptWithSearchContext({
   }
 
   return (
-    <div className="space-y-3">
-      <p id={liveId} className="text-sm text-muted-foreground" aria-live="polite">
-        Showing matches for &quot;{query.trim()}&quot; in the transcript below.
+    <div className="space-y-4">
+      <div className="sticky top-16 z-10 flex items-center justify-between rounded-lg border border-border bg-background/95 p-2 shadow-sm backdrop-blur-md sm:top-20">
+        <div className="flex items-center gap-2 px-2">
+          <Search className="h-4 w-4 text-muted-foreground" />
+          <span className="text-sm font-medium">
+            &quot;{query.trim()}&quot;
+          </span>
+          <span className="text-xs text-muted-foreground">
+            ({totalMatches > 0 ? currentMatchIndex + 1 : 0} of {totalMatches})
+          </span>
+        </div>
+        <div className="flex items-center gap-1">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8"
+            onClick={handlePrev}
+            disabled={totalMatches <= 1}
+            aria-label="Previous match"
+          >
+            <ChevronUp className="h-4 w-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8"
+            onClick={handleNext}
+            disabled={totalMatches <= 1}
+            aria-label="Next match"
+          >
+            <ChevronDown className="h-4 w-4" />
+          </Button>
+        </div>
+      </div>
+
+      <p id={liveId} className="sr-only" aria-live="polite">
+        Showing {totalMatches} matches for &quot;{query.trim()}&quot; in the transcript below.
       </p>
+
       <div
-        className="prose prose-neutral dark:prose-invert max-w-none whitespace-pre-wrap text-muted-foreground [&_mark]:rounded-sm [&_mark]:bg-primary/20 [&_mark]:text-foreground dark:[&_mark]:bg-primary/25"
+        className="prose prose-neutral dark:prose-invert max-w-none whitespace-pre-wrap text-muted-foreground"
         aria-describedby={liveId}
       >
-        {renderHighlighted(text, plan.needle!, firstMarkRef)}
+        {nodes}
       </div>
     </div>
   );

@@ -73,6 +73,31 @@ export function getGoogleDriveEmbedInfo(url: string): DriveEmbedInfo | null {
   }
 }
 
+/**
+ * File id for Drive API export / metadata (Google Docs, Sheets, Slides, or drive.google.com/file/...).
+ */
+export function extractGoogleDriveFileId(url: string): string | null {
+  const raw = url.trim();
+  if (!raw) return null;
+  try {
+    const u = new URL(raw);
+    const host = u.hostname.replace(/^www\./, "");
+    if (host === "docs.google.com") {
+      const m = u.pathname.match(/\/(document|spreadsheets|presentation)\/d\/([a-zA-Z0-9_-]+)/);
+      return m?.[2] ?? null;
+    }
+    if (host === "drive.google.com") {
+      const fileMatch = u.pathname.match(/\/file\/d\/([a-zA-Z0-9_-]+)/);
+      if (fileMatch) return fileMatch[1] ?? null;
+      const openId = u.searchParams.get("id");
+      if (openId && (u.pathname === "/open" || u.pathname.startsWith("/open"))) return openId;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
 /** Shared Drive folders cannot be embedded as a single document. */
 export function isDriveFolderUrl(url: string): boolean {
   try {

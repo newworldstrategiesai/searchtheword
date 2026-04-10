@@ -250,9 +250,40 @@ export function SermonDetail({ sermon, highlightQuery = "" }: SermonDetailProps)
         )}
       </div>
 
+      <Separator />
+
+      {sermon.full_text && (
+        <section className="scroll-mt-28 space-y-4">
+          <div className="flex items-center justify-between">
+            <h2 className="text-lg font-semibold">Transcript</h2>
+          </div>
+          <TranscriptWithSearchContext
+            text={sermon.full_text}
+            query={highlightQuery}
+            fallbackScrollId={scriptureFallbackId}
+          />
+        </section>
+      )}
+
+      {sermon.summary && (
+        <section className="space-y-2">
+          <h2 className="text-lg font-semibold">Summary</h2>
+          <p className="whitespace-pre-wrap leading-relaxed text-muted-foreground">{sermon.summary}</p>
+        </section>
+      )}
+
+      {sermon.core_doctrine && (
+        <section className="space-y-2">
+          <h2 className="text-lg font-semibold">Core doctrine</h2>
+          <p className="whitespace-pre-wrap leading-relaxed text-muted-foreground">{sermon.core_doctrine}</p>
+        </section>
+      )}
+
+      {(drive || (media && media !== drive)) && <Separator />}
+
       {drive && (
         <section className="space-y-3">
-          <h2 className="text-sm font-medium text-muted-foreground">Source</h2>
+          <h2 className="text-sm font-medium text-muted-foreground">Source document</h2>
           <SourceDocumentSection
             url={drive}
             title={sermon.title}
@@ -269,33 +300,6 @@ export function SermonDetail({ sermon, highlightQuery = "" }: SermonDetailProps)
             url={media}
             fullText={sermon.full_text}
             initialTranscriptSearch={transcriptSearch}
-          />
-        </section>
-      )}
-
-      <Separator />
-
-      {sermon.summary && (
-        <section className="space-y-2">
-          <h2 className="text-lg font-semibold">Summary</h2>
-          <p className="whitespace-pre-wrap text-muted-foreground leading-relaxed">{sermon.summary}</p>
-        </section>
-      )}
-
-      {sermon.core_doctrine && (
-        <section className="space-y-2">
-          <h2 className="text-lg font-semibold">Core doctrine</h2>
-          <p className="whitespace-pre-wrap text-muted-foreground leading-relaxed">{sermon.core_doctrine}</p>
-        </section>
-      )}
-
-      {sermon.full_text && (
-        <section className="scroll-mt-28 space-y-2">
-          <h2 className="text-lg font-semibold">Full text</h2>
-          <TranscriptWithSearchContext
-            text={sermon.full_text}
-            query={highlightQuery}
-            fallbackScrollId={scriptureFallbackId}
           />
         </section>
       )}
