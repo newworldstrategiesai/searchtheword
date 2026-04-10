@@ -87,9 +87,6 @@ export function LoginForm() {
 
         <CardHeader>
           <CardTitle>Admin sign in</CardTitle>
-          <CardDescription>
-            Sign in with a Supabase user that has <code className="text-xs">app_metadata.role = admin</code>.
-          </CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={(e) => void onSubmit(e)} className="space-y-4">
