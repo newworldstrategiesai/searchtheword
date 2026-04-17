@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useId, useMemo, useState, ReactNode } from "react";
-import { ChevronDown, ChevronUp, Search } from "lucide-react";
+import { ChevronDown, ChevronUp, Search, RotateCcw } from "lucide-react";
 import { escapeRegExp } from "@/lib/transcript-search";
 import { Button } from "@/components/ui/button";
 
@@ -12,21 +12,27 @@ type MatchPlan =
 function planMatch(text: string, rawQuery: string): MatchPlan {
   const q = rawQuery.trim();
   if (!q) return { kind: "none", needle: null };
+  const escaped = escapeRegExp(q);
+  const re = new RegExp(escaped, "gi");
+  const hasLiteralMatch = re.test(text);
+  return hasLiteralMatch ? { kind: "literal", needle: q } : { kind: "none", needle: null };
+}
 
-  const lower = text.toLowerCase();
-  const qLower = q.toLowerCase();
-  if (lower.includes(qLower)) {
-    return { kind: "literal", needle: q };
-  }
-
-  const tokens = q.split(/\s+/).filter((t) => t.length >= 2);
-  for (const t of tokens) {
-    if (lower.includes(t.toLowerCase())) {
-      return { kind: "literal", needle: t };
+function highlightSnippet(snippet: string, needle: string): ReactNode {
+  const re = new RegExp(`(${escapeRegExp(needle)})`, "gi");
+  const parts = snippet.split(re);
+  const nodes: ReactNode[] = [];
+  for (let i = 0; i < parts.length; i++) {
+    nodes.push(parts[i]);
+    if (i < parts.length - 1) {
+      nodes.push(
+        <mark key={`${needle}-${i}`} className="bg-primary/20 text-foreground rounded-sm">
+          {parts[i + 1]}
+        </mark>,
+      );
     }
   }
-
-  return { kind: "none", needle: null };
+  return nodes;
 }
 
 function renderHighlighted(text: string, needle: string, matchClass: string) {
@@ -76,10 +82,9 @@ export function TranscriptWithSearchContext({
   const [currentMatchIndex, setCurrentMatchIndex] = useState(0);
   const [totalMatches, setTotalMatches] = useState(0);
 
+  const hasQuery = query.trim().length >= 2;
   const plan = useMemo(() => planMatch(text, query), [text, query]);
-  const hasQuery = query.trim().length > 0;
   const hasMatch = plan.kind === "literal" && plan.needle !== null;
-
   const matchClassName = "scroll-mt-32 rounded-sm bg-primary/20 text-foreground transition-colors duration-200 data-[active=true]:bg-primary data-[active=true]:text-primary-foreground dark:bg-primary/25 dark:data-[active=true]:bg-primary/40";
 
   const { nodes, count } = useMemo(() => {
@@ -140,18 +145,14 @@ export function TranscriptWithSearchContext({
     const next = (currentMatchIndex + 1) % totalMatches;
     setCurrentMatchIndex(next);
     scrollToMatch(next);
+    // Clear any error flags on successful navigation
+    document.body.removeAttribute('data-has-errors');
   };
 
   const handlePrev = () => {
     const prev = (currentMatchIndex - 1 + totalMatches) % totalMatches;
     setCurrentMatchIndex(prev);
     scrollToMatch(prev);
-  };
-
-  const handleNext = () => {
-    const next = (currentMatchIndex + 1) % totalMatches;
-    setCurrentMatchIndex(next);
-    scrollToMatch(next);
   };
 
   const handleAll = () => {
@@ -182,7 +183,7 @@ export function TranscriptWithSearchContext({
       <div className="space-y-3">
         <p className="text-sm text-muted-foreground" aria-live="polite">
           No exact match for &quot;{query.trim()}&quot; in this transcript. This result may have matched
-          scripture references, topics, or other metadata—check the sections above.
+          scripture references, topics, or other metadata—check sections above.
         </p>
         <div className="prose prose-neutral dark:prose-invert max-w-none whitespace-pre-wrap text-muted-foreground">
           {text}

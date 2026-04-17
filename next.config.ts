@@ -9,6 +9,8 @@ const nextConfig: NextConfig = {
   turbopack: {
     root: projectRoot,
   },
+  // Use proxy instead of deprecated middleware
+  proxy: true,
   async headers() {
     return [
       {
