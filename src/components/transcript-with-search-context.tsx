@@ -18,23 +18,6 @@ function planMatch(text: string, rawQuery: string): MatchPlan {
   return hasLiteralMatch ? { kind: "literal", needle: q } : { kind: "none", needle: null };
 }
 
-function highlightSnippet(snippet: string, needle: string): ReactNode {
-  const re = new RegExp(`(${escapeRegExp(needle)})`, "gi");
-  const parts = snippet.split(re);
-  const nodes: ReactNode[] = [];
-  for (let i = 0; i < parts.length; i++) {
-    nodes.push(parts[i]);
-    if (i < parts.length - 1) {
-      nodes.push(
-        <mark key={`${needle}-${i}`} className="bg-primary/20 text-foreground rounded-sm">
-          {parts[i + 1]}
-        </mark>,
-      );
-    }
-  }
-  return nodes;
-}
-
 function renderHighlighted(text: string, needle: string, matchClass: string) {
   const re = new RegExp(escapeRegExp(needle), "gi");
   const nodes: ReactNode[] = [];
@@ -141,33 +124,24 @@ export function TranscriptWithSearchContext({
     });
   }, [hasQuery, hasMatch, fallbackScrollId]);
 
-  const handleNext = () => {
-    const next = (currentMatchIndex + 1) % totalMatches;
-    setCurrentMatchIndex(next);
-    scrollToMatch(next);
-    // Clear any error flags on successful navigation
-    document.body.removeAttribute('data-has-errors');
-  };
-
   const handlePrev = () => {
     const prev = (currentMatchIndex - 1 + totalMatches) % totalMatches;
     setCurrentMatchIndex(prev);
     scrollToMatch(prev);
   };
 
+  const handleNext = () => {
+    const nextIndex = (currentMatchIndex + 1) % totalMatches;
+    setCurrentMatchIndex(nextIndex);
+    scrollToMatch(nextIndex);
+    // Clear any error flags on successful navigation
+    document.body.removeAttribute('data-has-errors');
+  };
+
   const handleAll = () => {
     // Reset to first match and scroll to top
     setCurrentMatchIndex(0);
     scrollToMatch(0);
-  };
-
-  const handlePushIfNoErrors = () => {
-    // Check if there are any console errors from navigation attempts
-    const hasErrors = document.querySelector('[data-has-errors="true"]');
-    if (!hasErrors) {
-      // No errors found, push to next match
-      handleNext();
-    }
   };
 
   if (!hasQuery) {
