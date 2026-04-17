@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 import { Input } from "@/components/ui/input";
 import { escapeRegExp, findTranscriptSnippets } from "@/lib/transcript-search";
 import { TranscriptWithSearchContext } from "@/components/transcript-with-search-context";
+import { SearchSuggestionButtons } from "@/components/search-suggestion-buttons";
 
 /** Google’s preview UI shows a “Pop out” control we can’t style; block clicks in the top-right and forbid popups. */
 function showPopoutClickShield(embedUrl: string): boolean {
@@ -72,9 +73,11 @@ export function DriveEmbedFrame({
     const seed = initialTranscriptSearch?.trim() ?? "";
     if (seed.length < 2 || !hasTranscript || didApplyInitialSearch.current) return;
     didApplyInitialSearch.current = true;
-    setSearchQuery(seed);
-    setExpanded(true);
-    setViewMode("transcript");
+    setTimeout(() => {
+      setSearchQuery(seed);
+      setExpanded(true);
+      setViewMode("transcript");
+    }, 0);
   }, [initialTranscriptSearch, hasTranscript]);
 
   const transcriptSnippets = useMemo(() => {
@@ -100,9 +103,11 @@ export function DriveEmbedFrame({
 
   useEffect(() => {
     if (!expanded) {
-      setSearchQuery("");
-      setShowFindHint(false);
-      setViewMode("document");
+      setTimeout(() => {
+        setSearchQuery("");
+        setShowFindHint(false);
+        setViewMode("document");
+      }, 0);
     }
   }, [expanded]);
 
@@ -252,13 +257,49 @@ export function DriveEmbedFrame({
                   {transcriptSnippets.map((snippet, i) => (
                     <li
                       key={i}
-                      className="rounded-md border border-border/70 bg-background/90 px-3 py-2 text-foreground shadow-sm dark:bg-background/60"
+                      onClick={() => {
+                        setViewMode("transcript");
+                        // Scroll to specific match after switching to transcript view
+                        setTimeout(() => {
+                          const transcriptElement = document.querySelector('[data-transcript-container="true"]');
+                          if (transcriptElement) {
+                            const marks = transcriptElement.querySelectorAll('mark[data-match-index]');
+                            const targetMark = marks[i];
+                            if (targetMark) {
+                              targetMark.scrollIntoView({ block: "center", behavior: "smooth" });
+                              // Add active state
+                              marks.forEach(m => m.removeAttribute('data-active'));
+                              targetMark.setAttribute('data-active', 'true');
+                            }
+                          }
+                        }, 100);
+                      }}
+                      className="rounded-md border border-border/70 bg-background/90 px-3 py-2 text-foreground shadow-sm dark:bg-background/60 cursor-pointer hover:bg-muted/50 transition-colors duration-200"
                     >
                       {highlightSnippet(snippet, searchQuery)}
                     </li>
                   ))}
                 </ul>
               )}
+            </div>
+          )}
+
+          {/* Search Suggestions */}
+          {expanded && searchQuery.trim().length >= 2 && (
+            <div className="border-t border-border/60 bg-muted/30 px-4 py-3 dark:border-border/40 dark:bg-muted/15">
+              <div className="mb-3">
+                <p className="text-xs font-medium text-muted-foreground mb-2">Search suggestions</p>
+                <div className="flex flex-wrap gap-2">
+                  <SearchSuggestionButtons 
+                    searchQuery={searchQuery}
+                    fullText={fullText || null}
+                    onSelect={(suggestion: string) => {
+                      setSearchQuery(suggestion);
+                      setViewMode("transcript");
+                    }}
+                  />
+                </div>
+              </div>
             </div>
           )}
         </div>

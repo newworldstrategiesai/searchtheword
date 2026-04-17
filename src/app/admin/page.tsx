@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
@@ -68,6 +69,7 @@ function maybeToastImportProgress(tid: string | number, event: IngestProgressEve
 }
 
 export default function AdminPage() {
+  const router = useRouter();
   const [file, setFile] = useState<File | null>(null);
   const [pdfFile, setPdfFile] = useState<File | null>(null);
   const [status, setStatus] = useState<string | null>(null);
@@ -76,6 +78,27 @@ export default function AdminPage() {
   const [importLive, setImportLive] = useState<ImportLiveState | null>(null);
   const [reindexLoading, setReindexLoading] = useState(false);
   const [backfillLoading, setBackfillLoading] = useState(false);
+
+  // Auto-redirect admin users to account page
+  useEffect(() => {
+    const checkAdminAndRedirect = async () => {
+      try {
+        const supabase = createClient();
+        const { data: { user } } = await supabase.auth.getUser();
+        
+        if (user?.app_metadata?.role === "admin") {
+          // Admin is logged in, redirect to account page
+          router.push("/account");
+          router.refresh();
+        }
+      } catch (error) {
+        // Silent fail - don't show error to user
+        console.error("Admin redirect check failed:", error);
+      }
+    };
+
+    checkAdminAndRedirect();
+  }, [router]);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();

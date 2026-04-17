@@ -88,18 +88,33 @@ export function TranscriptWithSearchContext({
   }, [text, plan, hasMatch, matchClassName]);
 
   useEffect(() => {
-    setTotalMatches(count);
-    setCurrentMatchIndex(0);
+    setTimeout(() => {
+      setTotalMatches(count);
+      setCurrentMatchIndex(0);
+    }, 0);
   }, [count]);
 
   const scrollToMatch = (index: number) => {
+    // Debug logging
+    console.log(`Attempting to scroll to match index: ${index}`);
+    
     const el = document.querySelector(`mark[data-match-index="${index}"]`);
     if (el) {
       // Clear previous active state
       document.querySelectorAll('mark[data-match-index]').forEach(m => m.removeAttribute('data-active'));
       // Set new active state
       el.setAttribute('data-active', 'true');
-      el.scrollIntoView({ block: "center", behavior: "smooth" });
+      
+      // Small delay to ensure DOM is ready
+      setTimeout(() => {
+        el.scrollIntoView({ block: "center", behavior: "smooth" });
+        console.log(`Successfully scrolled to match index: ${index}`);
+      }, 50);
+    } else {
+      console.error(`Could not find mark element with index: ${index}`);
+      console.log('Available marks:', document.querySelectorAll('mark[data-match-index]'));
+      // Set error flag for push if no errors functionality
+      document.body.setAttribute('data-has-errors', 'true');
     }
   };
 
@@ -131,6 +146,27 @@ export function TranscriptWithSearchContext({
     const prev = (currentMatchIndex - 1 + totalMatches) % totalMatches;
     setCurrentMatchIndex(prev);
     scrollToMatch(prev);
+  };
+
+  const handleNext = () => {
+    const next = (currentMatchIndex + 1) % totalMatches;
+    setCurrentMatchIndex(next);
+    scrollToMatch(next);
+  };
+
+  const handleAll = () => {
+    // Reset to first match and scroll to top
+    setCurrentMatchIndex(0);
+    scrollToMatch(0);
+  };
+
+  const handlePushIfNoErrors = () => {
+    // Check if there are any console errors from navigation attempts
+    const hasErrors = document.querySelector('[data-has-errors="true"]');
+    if (!hasErrors) {
+      // No errors found, push to next match
+      handleNext();
+    }
   };
 
   if (!hasQuery) {
@@ -188,6 +224,15 @@ export function TranscriptWithSearchContext({
           >
             <ChevronDown className="h-4 w-4" />
           </Button>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={handleAll}
+            className="h-8 px-3"
+            aria-label="All matches - scroll to top"
+          >
+            <RotateCcw className="h-4 w-4" />
+          </Button>
         </div>
       </div>
 
@@ -198,6 +243,7 @@ export function TranscriptWithSearchContext({
       <div
         className="prose prose-neutral dark:prose-invert max-w-none whitespace-pre-wrap text-muted-foreground"
         aria-describedby={liveId}
+        data-transcript-container="true"
       >
         {nodes}
       </div>
