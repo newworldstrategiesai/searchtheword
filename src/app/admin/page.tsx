@@ -78,27 +78,53 @@ export default function AdminPage() {
   const [importLive, setImportLive] = useState<ImportLiveState | null>(null);
   const [reindexLoading, setReindexLoading] = useState(false);
   const [backfillLoading, setBackfillLoading] = useState(false);
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
 
-  // Auto-redirect admin users to account page
+  // Check authentication on mount
   useEffect(() => {
-    const checkAdminAndRedirect = async () => {
+    const checkAuth = async () => {
       try {
         const supabase = createClient();
         const { data: { user } } = await supabase.auth.getUser();
-        
-        if (user?.app_metadata?.role === "admin") {
-          // Admin is logged in, redirect to account page
-          router.push("/account");
-          router.refresh();
-        }
-      } catch (error) {
-        // Silent fail - don't show error to user
-        console.error("Admin redirect check failed:", error);
+        setIsAuthenticated(user?.app_metadata?.role === "admin");
+      } catch {
+        setIsAuthenticated(false);
       }
     };
+    checkAuth();
+  }, []);
 
-    checkAdminAndRedirect();
-  }, [router]);
+  // Show loading while checking auth
+  if (isAuthenticated === null) {
+    return (
+      <div className="mx-auto max-w-3xl px-4 py-10">
+        <div className="flex flex-col items-center justify-center space-y-4">
+          <Loader2 className="h-12 w-12 animate-spin text-primary" />
+          <p className="text-lg font-medium">Checking authentication...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Show access denied if not admin
+  if (!isAuthenticated) {
+    return (
+      <div className="mx-auto max-w-3xl px-4 py-10">
+        <div className="text-center space-y-4">
+          <h1 className="text-2xl font-bold text-red-600">Access Denied</h1>
+          <p className="text-lg text-muted-foreground">You must be an administrator to access this page.</p>
+          <div className="space-x-4">
+            <Link href="/" className={cn(buttonVariants({ variant: "outline" }), "inline-flex")}>
+              Back to Home
+            </Link>
+            <Link href="/login" className={cn(buttonVariants(), "inline-flex")}>
+              Admin Login
+            </Link>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
