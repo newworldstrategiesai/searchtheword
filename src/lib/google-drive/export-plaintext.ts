@@ -1,6 +1,11 @@
+import { createRequire } from "node:module";
 import { google } from "googleapis";
 import mammoth from "mammoth";
-import { PDFParse } from "pdf-parse";
+
+type PdfParseResult = { text: string };
+type PdfParse = (dataBuffer: Buffer) => Promise<PdfParseResult>;
+
+const require = createRequire(import.meta.url);
 
 function parseServiceAccount():
   | { client_email: string; private_key: string }
@@ -121,11 +126,11 @@ export async function fetchNativeGoogleFileAsPlaintext(
     }
 
     if (mimeType === "application/pdf") {
-      let parser: PDFParse | null = null;
       try {
         const buffer = await downloadDriveFileAsBuffer(fileId);
-        parser = new PDFParse({ data: buffer });
-        const result = await parser.getText();
+        // Use the library entrypoint directly; the package root runs a debug harness when bundled.
+        const pdfParse = require("pdf-parse/lib/pdf-parse.js") as PdfParse;
+        const result = await pdfParse(buffer);
         const text = result.text.trim();
         if (!text) {
           return { ok: false, error: "Extracted PDF content is empty" };
@@ -134,8 +139,6 @@ export async function fetchNativeGoogleFileAsPlaintext(
       } catch (e: unknown) {
         const msg = e instanceof Error ? e.message : "PDF extraction failed";
         return { ok: false, error: msg };
-      } finally {
-        await parser?.destroy().catch(() => undefined);
       }
     }
 
