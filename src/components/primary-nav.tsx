@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { BookOpen, Database, GraduationCap, MessageSquare, Newspaper, Shield, UserCircle } from "lucide-react";
+import { Database, GraduationCap, MessageSquare, Shield, UserCircle } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 export const PRIMARY_NAV_LINKS = [
@@ -13,21 +13,9 @@ export const PRIMARY_NAV_LINKS = [
     match: (p: string) => p === "/" || p.startsWith("/search") || p.startsWith("/sermon"),
   },
   {
-    href: "/search?document_type=Book",
-    label: "Books",
-    icon: BookOpen,
-    match: () => false,
-  },
-  {
     href: "/search?document_type=Bible%20Study",
     label: "Studies",
     icon: GraduationCap,
-    match: () => false,
-  },
-  {
-    href: "https://professortoto.substack.com",
-    label: "Blog",
-    icon: Newspaper,
     match: () => false,
   },
   { href: "/ask", label: "Ask AI", icon: MessageSquare, match: (p: string) => p.startsWith("/ask") },

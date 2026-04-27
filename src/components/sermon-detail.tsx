@@ -200,12 +200,16 @@ export function SermonDetail({ sermon, highlightQuery = "" }: SermonDetailProps)
   const searchableHeading =
     searchableTextSource === "chunks"
       ? "Searchable index text"
+      : searchableTextSource === "source_document"
+        ? "Full document text"
       : searchableTextSource === "record"
         ? "Searchable record"
         : "Transcript";
   const searchableDescription =
     searchableTextSource === "chunks"
       ? "This text comes from the vector search index, so keyword links can open directly to searchable content."
+      : searchableTextSource === "source_document"
+        ? "This text was pulled from the linked source document and is shown here so readers can search and highlight it without leaving the page."
       : searchableTextSource === "record"
         ? "This record is searchable from the archive metadata while a full transcript is being prepared."
         : null;

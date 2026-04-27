@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useMemo, useState, ReactNode } from "react";
+import { useCallback, useEffect, useId, useMemo, useState, ReactNode } from "react";
 import { ChevronDown, ChevronUp, Search, RotateCcw } from "lucide-react";
 import { escapeRegExp } from "@/lib/transcript-search";
 import { Button } from "@/components/ui/button";
@@ -49,6 +49,12 @@ function renderHighlighted(text: string, needle: string, matchClass: string) {
   return { nodes, count };
 }
 
+function isTextEntryTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  const tag = target.tagName.toLowerCase();
+  return tag === "input" || tag === "textarea" || tag === "select" || target.isContentEditable;
+}
+
 type TranscriptWithSearchContextProps = {
   text: string;
   query: string;
@@ -82,7 +88,7 @@ export function TranscriptWithSearchContext({
     }, 0);
   }, [count]);
 
-  const scrollToMatch = (index: number) => {
+  const scrollToMatch = useCallback((index: number) => {
     const el = document.querySelector(`mark[data-match-index="${index}"]`);
     if (el) {
       document.querySelectorAll("mark[data-match-index]").forEach((m) => m.removeAttribute("data-active"));
@@ -91,7 +97,7 @@ export function TranscriptWithSearchContext({
         el.scrollIntoView({ block: "center", behavior: "smooth" });
       }, 50);
     }
-  };
+  }, []);
 
   useEffect(() => {
     if (!hasQuery || !hasMatch || count === 0) return;
@@ -100,7 +106,7 @@ export function TranscriptWithSearchContext({
       scrollToMatch(0);
     });
     return () => window.cancelAnimationFrame(tid);
-  }, [hasQuery, hasMatch, count]);
+  }, [hasQuery, hasMatch, count, scrollToMatch]);
 
   useEffect(() => {
     if (!hasQuery || hasMatch || !fallbackScrollId) return;
@@ -111,22 +117,46 @@ export function TranscriptWithSearchContext({
     });
   }, [hasQuery, hasMatch, fallbackScrollId]);
 
-  const handlePrev = () => {
+  const handlePrev = useCallback(() => {
+    if (totalMatches <= 0) return;
     const prev = (currentMatchIndex - 1 + totalMatches) % totalMatches;
     setCurrentMatchIndex(prev);
     scrollToMatch(prev);
-  };
+  }, [currentMatchIndex, scrollToMatch, totalMatches]);
 
-  const handleNext = () => {
+  const handleNext = useCallback(() => {
+    if (totalMatches <= 0) return;
     const nextIndex = (currentMatchIndex + 1) % totalMatches;
     setCurrentMatchIndex(nextIndex);
     scrollToMatch(nextIndex);
-  };
+  }, [currentMatchIndex, scrollToMatch, totalMatches]);
 
-  const handleAll = () => {
+  const handleAll = useCallback(() => {
+    if (totalMatches <= 0) return;
     setCurrentMatchIndex(0);
     scrollToMatch(0);
-  };
+  }, [scrollToMatch, totalMatches]);
+
+  useEffect(() => {
+    if (!hasQuery || !hasMatch || totalMatches <= 0) return;
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (isTextEntryTarget(event.target)) return;
+
+      if (event.key === "ArrowRight" || event.key === "ArrowDown") {
+        event.preventDefault();
+        handleNext();
+      }
+
+      if (event.key === "ArrowLeft" || event.key === "ArrowUp") {
+        event.preventDefault();
+        handlePrev();
+      }
+    };
+
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [handleNext, handlePrev, hasMatch, hasQuery, totalMatches]);
 
   if (!hasQuery) {
     return (
@@ -153,13 +183,18 @@ export function TranscriptWithSearchContext({
   return (
     <div className="space-y-4">
       <div className="sticky top-16 z-10 flex items-center justify-between rounded-lg border border-border bg-background/95 p-2 shadow-sm backdrop-blur-md sm:top-20">
-        <div className="flex items-center gap-2 px-2">
-          <Search className="h-4 w-4 text-muted-foreground" />
-          <span className="text-sm font-medium">
-            &quot;{query.trim()}&quot;
-          </span>
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1 px-2">
+          <div className="flex items-center gap-2">
+            <Search className="h-4 w-4 text-muted-foreground" />
+            <span className="text-sm font-medium">
+              &quot;{query.trim()}&quot;
+            </span>
+            <span className="text-xs text-muted-foreground">
+              ({totalMatches > 0 ? currentMatchIndex + 1 : 0} of {totalMatches})
+            </span>
+          </div>
           <span className="text-xs text-muted-foreground">
-            ({totalMatches > 0 ? currentMatchIndex + 1 : 0} of {totalMatches})
+            Use arrow keys to move between matches
           </span>
         </div>
         <div className="flex items-center gap-1">
@@ -170,6 +205,7 @@ export function TranscriptWithSearchContext({
             onClick={handlePrev}
             disabled={totalMatches <= 1}
             aria-label="Previous match"
+            aria-keyshortcuts="ArrowLeft ArrowUp"
           >
             <ChevronUp className="h-4 w-4" />
           </Button>
@@ -180,6 +216,7 @@ export function TranscriptWithSearchContext({
             onClick={handleNext}
             disabled={totalMatches <= 1}
             aria-label="Next match"
+            aria-keyshortcuts="ArrowRight ArrowDown"
           >
             <ChevronDown className="h-4 w-4" />
           </Button>

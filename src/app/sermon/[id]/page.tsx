@@ -3,6 +3,13 @@ import { notFound } from "next/navigation";
 import { STATIC_OG, staticOgImage } from "@/lib/seo";
 import { SermonDetail } from "@/components/sermon-detail";
 import { isUuid } from "@/lib/is-uuid";
+import { scheduleSermonEmbeddingReindex } from "@/lib/embeddings/schedule-reindex";
+import {
+  fetchNativeGoogleFileAsPlaintext,
+  googleDriveExportConfigured,
+} from "@/lib/google-drive/export-plaintext";
+import { extractGoogleDriveFileId } from "@/lib/google-drive-embed";
+import { createAdminSupabaseClient } from "@/lib/supabase/admin";
 import { createPublicSupabaseClient } from "@/lib/supabase/server";
 import type { ScriptureRefRow, SermonWithKeywords } from "@/lib/types";
 
@@ -12,6 +19,65 @@ type PageProps = {
   params: Promise<{ id: string }>;
   searchParams: Promise<{ q?: string | string[] }>;
 };
+
+type SermonSourceRow = {
+  id: string;
+  title: string;
+  full_text: string | null;
+  summary: string | null;
+  google_drive_url?: string | null;
+  media_url?: string | null;
+};
+
+function pickExportSourceUrl(row: SermonSourceRow): string | null {
+  const driveUrl = row.google_drive_url?.trim();
+  if (driveUrl && extractGoogleDriveFileId(driveUrl)) return driveUrl;
+
+  const mediaUrl = row.media_url?.trim();
+  if (mediaUrl && extractGoogleDriveFileId(mediaUrl)) return mediaUrl;
+
+  return null;
+}
+
+async function getInlineSourceDocumentText(row: SermonSourceRow): Promise<string | null> {
+  if (!googleDriveExportConfigured()) return null;
+
+  const sourceUrl = pickExportSourceUrl(row);
+  if (!sourceUrl) return null;
+
+  const fileId = extractGoogleDriveFileId(sourceUrl);
+  if (!fileId) return null;
+
+  const exported = await fetchNativeGoogleFileAsPlaintext(fileId);
+  if (!exported.ok) {
+    console.warn(`[sermon-detail] Could not export source document for ${row.id}: ${exported.error}`);
+    return null;
+  }
+
+  try {
+    const admin = createAdminSupabaseClient();
+    const { error } = await admin
+      .from("sermons")
+      .update({ full_text: exported.text })
+      .eq("id", row.id);
+
+    if (error) {
+      console.warn(`[sermon-detail] Could not save exported source text for ${row.id}: ${error.message}`);
+    } else {
+      scheduleSermonEmbeddingReindex(admin, {
+        id: row.id,
+        title: row.title,
+        full_text: exported.text,
+        summary: row.summary,
+      });
+    }
+  } catch (e) {
+    const message = e instanceof Error ? e.message : "Unknown error";
+    console.warn(`[sermon-detail] Could not cache exported source text for ${row.id}: ${message}`);
+  }
+
+  return exported.text;
+}
 
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
   const { id } = await params;
@@ -124,6 +190,22 @@ export default async function SermonPage({ params, searchParams }: PageProps) {
     if (chunkText) {
       searchableText = chunkText;
       searchableTextSource = "chunks";
+    }
+  }
+
+  if (!searchableText) {
+    const sourceText = await getInlineSourceDocumentText({
+      id: sermon.id as string,
+      title: sermon.title as string,
+      full_text: fullText,
+      summary: sermon.summary as string | null,
+      google_drive_url: (sermon as { google_drive_url?: string }).google_drive_url ?? null,
+      media_url: sermon.media_url as string | null,
+    });
+
+    if (sourceText?.trim()) {
+      searchableText = sourceText;
+      searchableTextSource = "source_document";
     }
   }
 

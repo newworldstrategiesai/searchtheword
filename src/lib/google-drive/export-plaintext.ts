@@ -1,4 +1,6 @@
 import { google } from "googleapis";
+import mammoth from "mammoth";
+import { PDFParse } from "pdf-parse";
 
 function parseServiceAccount():
   | { client_email: string; private_key: string }
@@ -31,6 +33,29 @@ function createDrive() {
     scopes: ["https://www.googleapis.com/auth/drive.readonly"],
   });
   return google.drive({ version: "v3", auth });
+}
+
+function toBuffer(data: unknown): Buffer {
+  if (Buffer.isBuffer(data)) return data;
+  if (data instanceof ArrayBuffer) return Buffer.from(data);
+  if (ArrayBuffer.isView(data)) {
+    return Buffer.from(data.buffer, data.byteOffset, data.byteLength);
+  }
+  return Buffer.from(String(data ?? ""));
+}
+
+async function downloadDriveFileAsBuffer(fileId: string): Promise<Buffer> {
+  const drive = createDrive();
+  if (!drive) {
+    throw new Error("GOOGLE_SERVICE_ACCOUNT_JSON is not configured");
+  }
+
+  const res = await drive.files.get(
+    { fileId, alt: "media", supportsAllDrives: true },
+    { responseType: "arraybuffer" },
+  );
+
+  return toBuffer(res.data);
 }
 
 /**
@@ -80,9 +105,43 @@ export async function fetchNativeGoogleFileAsPlaintext(
   };
   const targetMime = mimeType ? exportMime[mimeType] : undefined;
   if (!targetMime) {
+    if (mimeType === "application/vnd.openxmlformats-officedocument.wordprocessingml.document") {
+      try {
+        const buffer = await downloadDriveFileAsBuffer(fileId);
+        const result = await mammoth.extractRawText({ buffer });
+        const text = result.value.trim();
+        if (!text) {
+          return { ok: false, error: "Extracted Word document content is empty" };
+        }
+        return { ok: true, text, name: meta.name ?? undefined };
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : "Word document extraction failed";
+        return { ok: false, error: msg };
+      }
+    }
+
+    if (mimeType === "application/pdf") {
+      let parser: PDFParse | null = null;
+      try {
+        const buffer = await downloadDriveFileAsBuffer(fileId);
+        parser = new PDFParse({ data: buffer });
+        const result = await parser.getText();
+        const text = result.text.trim();
+        if (!text) {
+          return { ok: false, error: "Extracted PDF content is empty" };
+        }
+        return { ok: true, text, name: meta.name ?? undefined };
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : "PDF extraction failed";
+        return { ok: false, error: msg };
+      } finally {
+        await parser?.destroy().catch(() => undefined);
+      }
+    }
+
     return {
       ok: false,
-      error: `File type "${mimeType ?? "unknown"}" cannot be auto-exported. Use a native Google Doc/Sheet/Slide, or paste a transcript into full_text.`,
+      error: `File type "${mimeType ?? "unknown"}" cannot be auto-exported. Use a native Google Doc/Sheet/Slide, PDF, DOCX, or paste a transcript into full_text.`,
     };
   }
 
