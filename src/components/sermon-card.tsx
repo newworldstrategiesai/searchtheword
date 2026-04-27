@@ -1,19 +1,41 @@
 import Link from "next/link";
-import { Calendar, User } from "lucide-react";
+import { ArrowRight, Calendar, User } from "lucide-react";
 import type { SermonSearchRow } from "@/lib/types";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { KeywordBadge } from "@/components/keyword-badge";
 import { sanitizeHeadlineHtml } from "@/lib/sanitize-headline";
 import { seriesListHref } from "@/lib/series-url";
+import { SearchResultCopyButton } from "@/components/search-result-copy-button";
+import { escapeRegExp, findTranscriptSnippets } from "@/lib/transcript-search";
 
 type SermonCardProps = {
   sermon: SermonSearchRow;
   keywords?: string[];
+  searchableText?: string | null;
   /** When set (e.g. from search results), sermon opens with transcript highlight for this query. */
   highlightQuery?: string;
 };
 
-export function SermonCard({ sermon, keywords = [], highlightQuery }: SermonCardProps) {
+function stripHtml(value: string): string {
+  return value.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+}
+
+function renderLiteralHighlight(text: string, query: string) {
+  const q = query.trim();
+  if (!q) return text;
+  const parts = text.split(new RegExp(`(${escapeRegExp(q)})`, "gi"));
+  return parts.map((part, index) =>
+    part.toLowerCase() === q.toLowerCase() ? (
+      <mark key={`${part}-${index}`} className="rounded-sm bg-primary/20 px-0.5 text-foreground dark:bg-primary/30">
+        {part}
+      </mark>
+    ) : (
+      part
+    ),
+  );
+}
+
+export function SermonCard({ sermon, keywords = [], searchableText, highlightQuery }: SermonCardProps) {
   const q = highlightQuery?.trim();
   const sermonHref =
     q && q.length > 0
@@ -29,6 +51,10 @@ export function SermonCard({ sermon, keywords = [], highlightQuery }: SermonCard
     sermon.full_text?.slice(0, 220) ||
     "No summary available.";
   const truncated = !hl && excerpt.length >= 220 ? `${excerpt}…` : excerpt;
+  const matchText = sermon.full_text?.trim() || searchableText?.trim() || "";
+  const transcriptMatches =
+    q && matchText ? findTranscriptSnippets(matchText, q, 3) : [];
+  const plainExcerpt = stripHtml(transcriptMatches[0] ?? truncated);
 
   return (
     <Card className="scroll-mt-28 transition-shadow hover:shadow-md">
@@ -66,7 +92,33 @@ export function SermonCard({ sermon, keywords = [], highlightQuery }: SermonCard
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
-        {hl ? (
+        {q && transcriptMatches.length > 0 ? (
+          <div className="space-y-2">
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+              Top matches in this teaching
+            </p>
+            <ul className="space-y-2">
+              {transcriptMatches.map((snippet, index) => (
+                <li
+                  key={`${sermon.id}-match-${index}`}
+                  className="rounded-lg border border-border/70 bg-muted/25 p-3 text-sm leading-relaxed text-muted-foreground dark:bg-muted/10"
+                >
+                  <p>{renderLiteralHighlight(snippet, q)}</p>
+                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                    <SearchResultCopyButton textToCopy={stripHtml(snippet)} label="Copy paragraph" />
+                    <Link
+                      href={sermonHref}
+                      className="inline-flex items-center gap-1 text-xs font-medium text-primary underline-offset-4 transition-colors hover:text-primary/90 hover:underline"
+                    >
+                      Read this section
+                      <ArrowRight className="h-3.5 w-3.5" aria-hidden />
+                    </Link>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : hl ? (
           <div
             className="text-sm text-muted-foreground [&_mark]:rounded-sm [&_mark]:bg-primary/20 [&_mark]:text-foreground"
             dangerouslySetInnerHTML={{ __html: sanitizeHeadlineHtml(hl) }}
@@ -82,18 +134,21 @@ export function SermonCard({ sermon, keywords = [], highlightQuery }: SermonCard
           </div>
         )}
         {q && (
-          <p className="border-t border-border/60 pt-3 text-sm dark:border-border/40">
-            <Link
-              href={sermonHref}
-              className="font-medium text-primary underline-offset-4 transition-colors hover:text-primary/90 hover:underline"
-            >
-              Read more
-            </Link>
-            <span className="text-muted-foreground">
-              {" "}
-              — opens the sermon and scrolls to your search in the saved transcript when available.
-            </span>
-          </p>
+          <div className="border-t border-border/60 pt-3 dark:border-border/40">
+            <div className="flex flex-wrap items-center gap-2">
+              <SearchResultCopyButton textToCopy={plainExcerpt} label="Copy paragraph" />
+              <Link
+                href={sermonHref}
+                className="inline-flex items-center gap-1 text-sm font-medium text-primary underline-offset-4 transition-colors hover:text-primary/90 hover:underline"
+              >
+                Read more
+                <ArrowRight className="h-3.5 w-3.5" aria-hidden />
+              </Link>
+            </div>
+            <p className="mt-2 text-xs text-muted-foreground">
+              Opens this sermon and jumps to your highlighted search term when transcript text is available.
+            </p>
+          </div>
         )}
       </CardContent>
     </Card>

@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
@@ -69,7 +68,6 @@ function maybeToastImportProgress(tid: string | number, event: IngestProgressEve
 }
 
 export default function AdminPage() {
-  const router = useRouter();
   const [file, setFile] = useState<File | null>(null);
   const [pdfFile, setPdfFile] = useState<File | null>(null);
   const [status, setStatus] = useState<string | null>(null);

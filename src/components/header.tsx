@@ -1,8 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { Menu } from "lucide-react";
 import { SearchBar } from "@/components/search-bar";
 import { ModeToggle } from "@/components/mode-toggle";
@@ -19,22 +18,20 @@ import {
 import { buttonVariants } from "@/lib/button-variants";
 import { cn } from "@/lib/utils";
 
-function BrowseLink({ className }: { className?: string }) {
+function BrowseLink({ className, onClick }: { className?: string; onClick?: () => void }) {
   return (
-    <Link href="/search" className={cn(buttonVariants({ variant: "ghost", size: "sm" }), "h-9 whitespace-nowrap", className)}>
+    <Link
+      href="/search"
+      onClick={onClick}
+      className={cn(buttonVariants({ variant: "ghost", size: "sm" }), "h-9 whitespace-nowrap", className)}
+    >
       Browse
     </Link>
   );
 }
 
 export function Header() {
-  const pathname = usePathname();
-  const isHome = pathname === "/";
   const [menuOpen, setMenuOpen] = useState(false);
-
-  useEffect(() => {
-    setMenuOpen(false);
-  }, [pathname]);
 
   return (
     <header className="sticky top-0 z-50 border-b border-border/60 bg-background/95 pt-[max(0.5rem,env(safe-area-inset-top))] shadow-[0_1px_0_0_oklch(0.75_0.08_75_/_0.08)] backdrop-blur-md dark:border-border/80 dark:bg-background/90 dark:shadow-[0_1px_0_0_oklch(0.95_0.02_85_/_0.06)]">
@@ -68,11 +65,14 @@ export function Header() {
                 <SheetHeader className="border-b border-border px-4 pb-4 pt-5 text-left">
                   <SheetTitle className="font-heading text-lg">SearchTheWord</SheetTitle>
                   <SheetDescription className="text-[0.65rem] font-medium uppercase tracking-[0.16em] text-muted-foreground">
-                    {isHome ? "Message search" : "Sermon search"}
+                    Message search
                   </SheetDescription>
                 </SheetHeader>
                 <div className="flex flex-col gap-4 px-4 py-4">
-                  <BrowseLink className="h-11 w-full justify-start px-4 text-base font-medium" />
+                  <BrowseLink
+                    className="h-11 w-full justify-start px-4 text-base font-medium"
+                    onClick={() => setMenuOpen(false)}
+                  />
                   <PrimaryNavDrawer onNavigate={() => setMenuOpen(false)} />
                 </div>
               </SheetContent>
@@ -90,38 +90,27 @@ export function Header() {
               SearchTheWord
             </Link>
             <span className="hidden shrink-0 text-[0.7rem] font-medium uppercase leading-none tracking-[0.16em] text-muted-foreground sm:inline">
-              {isHome ? "Message search" : "Sermon search"}
+              Message search
             </span>
           </div>
 
           <PrimaryNav className="shrink-0" />
 
-          {!isHome && (
-            <div className="flex min-w-0 flex-1 flex-row items-center gap-3 border-l border-border/50 pl-5">
-              <div className="min-w-0 flex-1">
-                <SearchBar variant="header" className="w-full min-w-0" />
-              </div>
-              <div className="flex shrink-0 items-center gap-1 sm:gap-2">
-                <BrowseLink />
-                <ModeToggle />
-              </div>
+          <div className="flex min-w-0 flex-1 flex-row items-center gap-3 border-l border-border/50 pl-5">
+            <div className="min-w-0 flex-1">
+              <SearchBar variant="header" className="w-full min-w-0" />
             </div>
-          )}
-
-          {isHome && (
-            <div className="ml-auto flex shrink-0 items-center gap-1 sm:gap-2">
+            <div className="flex shrink-0 items-center gap-1 sm:gap-2">
               <BrowseLink />
               <ModeToggle />
             </div>
-          )}
+          </div>
         </div>
 
-        {/* Mobile: search (second row only when not home) */}
-        {!isHome && (
-          <div className="mt-2 border-t border-border/40 pt-2 lg:hidden">
-            <SearchBar variant="header" className="w-full min-w-0" />
-          </div>
-        )}
+        {/* Mobile: search row */}
+        <div className="mt-2 border-t border-border/40 pt-2 lg:hidden">
+          <SearchBar variant="header" className="w-full min-w-0" />
+        </div>
       </div>
     </header>
   );

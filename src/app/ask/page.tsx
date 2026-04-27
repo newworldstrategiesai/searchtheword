@@ -25,7 +25,7 @@ export default function AskPage() {
     {
       role: "assistant",
       content:
-        "Hi — I’m your sermon assistant. I can use retrieved sermon excerpts when your church has run embedding index (admin: reindex). Ask a question about faith or teaching; for pure keyword lookup, use Search in the header too.",
+        "Hi — I’m your sermon assistant. I only answer from Pastor Vaughn’s indexed teachings and cite the sermon excerpts I used. For exact keyword or scripture lookup, use Search in the header.",
     },
   ]);
   const [input, setInput] = useState("");
@@ -89,7 +89,7 @@ export default function AskPage() {
         <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Layer 2</p>
         <h1 className="text-2xl font-bold tracking-tight">Ask AI</h1>
         <p className="text-sm text-muted-foreground">
-          Answers can cite retrieved sermon excerpts when embeddings are indexed. For browse mode, use{" "}
+          Answers are grounded in Pastor Vaughn&apos;s indexed teachings and should cite retrieved sermon excerpts. For browse mode, use{" "}
           <button
             type="button"
             onClick={() => router.push("/search")}

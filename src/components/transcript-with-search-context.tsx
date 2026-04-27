@@ -83,26 +83,13 @@ export function TranscriptWithSearchContext({
   }, [count]);
 
   const scrollToMatch = (index: number) => {
-    // Debug logging
-    console.log(`Attempting to scroll to match index: ${index}`);
-    
     const el = document.querySelector(`mark[data-match-index="${index}"]`);
     if (el) {
-      // Clear previous active state
-      document.querySelectorAll('mark[data-match-index]').forEach(m => m.removeAttribute('data-active'));
-      // Set new active state
-      el.setAttribute('data-active', 'true');
-      
-      // Small delay to ensure DOM is ready
+      document.querySelectorAll("mark[data-match-index]").forEach((m) => m.removeAttribute("data-active"));
+      el.setAttribute("data-active", "true");
       setTimeout(() => {
         el.scrollIntoView({ block: "center", behavior: "smooth" });
-        console.log(`Successfully scrolled to match index: ${index}`);
       }, 50);
-    } else {
-      console.error(`Could not find mark element with index: ${index}`);
-      console.log('Available marks:', document.querySelectorAll('mark[data-match-index]'));
-      // Set error flag for push if no errors functionality
-      document.body.setAttribute('data-has-errors', 'true');
     }
   };
 
@@ -134,12 +121,9 @@ export function TranscriptWithSearchContext({
     const nextIndex = (currentMatchIndex + 1) % totalMatches;
     setCurrentMatchIndex(nextIndex);
     scrollToMatch(nextIndex);
-    // Clear any error flags on successful navigation
-    document.body.removeAttribute('data-has-errors');
   };
 
   const handleAll = () => {
-    // Reset to first match and scroll to top
     setCurrentMatchIndex(0);
     scrollToMatch(0);
   };

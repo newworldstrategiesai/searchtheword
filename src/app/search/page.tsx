@@ -9,6 +9,7 @@ import { searchSermonsServer } from "@/lib/sermons";
 import { getKeywordsForSermonIds } from "@/lib/keywords-batch";
 import { filterSermonResults } from "@/lib/filter-sermons";
 import type { SearchMode } from "@/lib/types";
+import { createPublicSupabaseClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
 
@@ -37,6 +38,28 @@ export const metadata: Metadata = {
 const PAGE_SIZE = 20;
 
 const MODES: SearchMode[] = ["all", "scripture", "topic", "fulltext"];
+
+async function getSearchableTextForSermonIds(ids: string[]) {
+  const map = new Map<string, string>();
+  if (ids.length === 0) return map;
+
+  const supabase = createPublicSupabaseClient();
+  const { data } = await supabase
+    .from("sermon_chunks")
+    .select("sermon_id, chunk_index, content")
+    .in("sermon_id", ids)
+    .order("sermon_id", { ascending: true })
+    .order("chunk_index", { ascending: true });
+
+  for (const row of data ?? []) {
+    const sermonId = String((row as { sermon_id?: string }).sermon_id ?? "");
+    const content = String((row as { content?: string }).content ?? "").trim();
+    if (!sermonId || !content) continue;
+    map.set(sermonId, [map.get(sermonId), content].filter(Boolean).join("\n\n"));
+  }
+
+  return map;
+}
 
 type SearchPageProps = {
   searchParams: Promise<{
@@ -98,7 +121,10 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
   }
 
   const ids = results.map((r) => r.id);
-  const kwMap = await getKeywordsForSermonIds(ids);
+  const [kwMap, searchableTextMap] = await Promise.all([
+    getKeywordsForSermonIds(ids),
+    getSearchableTextForSermonIds(ids),
+  ]);
 
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
 
@@ -142,6 +168,17 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
 
       <div className="grid gap-8 lg:grid-cols-[1fr_16rem]">
         <div className="space-y-6">
+          {!error && (
+            <p className="text-sm text-muted-foreground" aria-live="polite">
+              {total} result{total === 1 ? "" : "s"}
+              {q.trim() ? (
+                <>
+                  {" "}
+                  for <span className="font-medium text-foreground">&quot;{q.trim()}&quot;</span>
+                </>
+              ) : null}
+            </p>
+          )}
           {error && (
             <div className="rounded-lg border border-destructive/50 bg-destructive/10 px-4 py-3 text-sm text-destructive">
               {error}
@@ -162,6 +199,7 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
                   <SermonCard
                     sermon={s}
                     keywords={kwMap.get(s.id) ?? []}
+                    searchableText={searchableTextMap.get(s.id) ?? null}
                     highlightQuery={q.trim() ? q : undefined}
                   />
                 </li>

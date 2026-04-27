@@ -68,8 +68,9 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang="en" data-scroll-behavior="smooth" suppressHydrationWarning>
       <body
+        suppressHydrationWarning
         className={`${fontBody.variable} ${fontHeading.variable} ${geistMono.variable} flex min-h-full flex-col font-sans antialiased`}
       >
         <ThemeProvider>

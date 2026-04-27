@@ -105,6 +105,42 @@ export default async function SermonPage({ params, searchParams }: PageProps) {
     raw: String(r.raw),
   }));
 
+  const fullText = sermon.full_text as string | null;
+  let searchableText = fullText?.trim() ? fullText : null;
+  let searchableTextSource: SermonWithKeywords["searchable_text_source"] = searchableText ? "full_text" : null;
+
+  if (!searchableText) {
+    const { data: chunks } = await supabase
+      .from("sermon_chunks")
+      .select("content")
+      .eq("sermon_id", id)
+      .order("chunk_index", { ascending: true });
+
+    const chunkText = (chunks ?? [])
+      .map((chunk) => String((chunk as { content?: string }).content ?? "").trim())
+      .filter(Boolean)
+      .join("\n\n");
+
+    if (chunkText) {
+      searchableText = chunkText;
+      searchableTextSource = "chunks";
+    }
+  }
+
+  if (!searchableText) {
+    const recordText = [
+      sermon.summary ? `Summary\n${String(sermon.summary)}` : "",
+      sermon.core_doctrine ? `Core doctrine\n${String(sermon.core_doctrine)}` : "",
+    ]
+      .filter(Boolean)
+      .join("\n\n");
+
+    if (recordText.trim()) {
+      searchableText = recordText;
+      searchableTextSource = "record";
+    }
+  }
+
   const payload: SermonWithKeywords = {
     ...sermon,
     id: sermon.id as string,
@@ -113,7 +149,7 @@ export default async function SermonPage({ params, searchParams }: PageProps) {
     date: sermon.date as string | null,
     scripture_ref: sermon.scripture_ref as string | null,
     summary: sermon.summary as string | null,
-    full_text: sermon.full_text as string | null,
+    full_text: fullText,
     media_url: sermon.media_url as string | null,
     created_at: sermon.created_at as string,
     updated_at: sermon.updated_at as string,
@@ -125,6 +161,8 @@ export default async function SermonPage({ params, searchParams }: PageProps) {
     folder: (sermon as { folder?: string }).folder ?? null,
     keywords,
     scripture_refs,
+    searchable_text: searchableText,
+    searchable_text_source: searchableTextSource,
   };
 
   return <SermonDetail sermon={payload} highlightQuery={highlightQuery} />;

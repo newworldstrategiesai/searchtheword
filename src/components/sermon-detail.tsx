@@ -105,13 +105,36 @@ function SourceDocumentSection({
   url,
   title,
   fullText,
-  initialTranscriptSearch,
 }: {
   url: string;
   title: string;
   fullText?: string | null;
   initialTranscriptSearch?: string | null;
 }) {
+  if (fullText?.trim()) {
+    return (
+      <div className="rounded-xl border border-border bg-muted/25 p-5 dark:bg-muted/10">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="text-sm font-medium text-foreground">Original source document</p>
+            <p className="mt-1 text-sm text-muted-foreground">
+              This teaching is shown above as searchable text so readers can jump directly to matched words.
+            </p>
+          </div>
+          <a
+            href={url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className={cn(buttonVariants({ variant: "outline", size: "sm" }), "inline-flex shrink-0 items-center gap-2")}
+            aria-label={`Open source document for ${title}`}
+          >
+            <ExternalLink className="h-4 w-4" />
+            Open source
+          </a>
+        </div>
+      </div>
+    );
+  }
   const embed = getGoogleDriveEmbedInfo(url);
   if (embed) {
     return (
@@ -119,7 +142,6 @@ function SourceDocumentSection({
         embedUrl={embed.embedUrl}
         documentLabel={`${title} — source document`}
         fullText={fullText}
-        initialTranscriptSearch={initialTranscriptSearch}
       />
     );
   }
@@ -163,6 +185,8 @@ function SourceDocumentSection({
 export function SermonDetail({ sermon, highlightQuery = "" }: SermonDetailProps) {
   const drive = sermon.google_drive_url;
   const media = sermon.media_url;
+  const searchableText = sermon.searchable_text?.trim() || null;
+  const searchableTextSource = sermon.searchable_text_source ?? null;
   const transcriptSearch =
     highlightQuery.trim().length >= 2 ? highlightQuery.trim() : null;
   const scriptureFallbackId =
@@ -172,13 +196,25 @@ export function SermonDetail({ sermon, highlightQuery = "" }: SermonDetailProps)
         ? "sermon-scripture-ref"
         : undefined;
 
-  const hasFullText = Boolean(sermon.full_text?.trim());
+  const hasSearchableText = Boolean(searchableText);
+  const searchableHeading =
+    searchableTextSource === "chunks"
+      ? "Searchable index text"
+      : searchableTextSource === "record"
+        ? "Searchable record"
+        : "Transcript";
+  const searchableDescription =
+    searchableTextSource === "chunks"
+      ? "This text comes from the vector search index, so keyword links can open directly to searchable content."
+      : searchableTextSource === "record"
+        ? "This record is searchable from the archive metadata while a full transcript is being prepared."
+        : null;
 
   return (
     <article className="mx-auto max-w-3xl space-y-8 px-4 py-8">
       <SearchContextFallback
         query={highlightQuery}
-        hasFullText={hasFullText}
+        hasFullText={hasSearchableText}
         fallbackScrollId={scriptureFallbackId}
       />
       <div>
@@ -252,13 +288,16 @@ export function SermonDetail({ sermon, highlightQuery = "" }: SermonDetailProps)
 
       <Separator />
 
-      {sermon.full_text && (
+      {searchableText && (
         <section className="scroll-mt-28 space-y-4">
-          <div className="flex items-center justify-between">
-            <h2 className="text-lg font-semibold">Transcript</h2>
+          <div className="space-y-1">
+            <h2 className="text-lg font-semibold">{searchableHeading}</h2>
+            {searchableDescription && (
+              <p className="text-sm text-muted-foreground">{searchableDescription}</p>
+            )}
           </div>
           <TranscriptWithSearchContext
-            text={sermon.full_text}
+            text={searchableText}
             query={highlightQuery}
             fallbackScrollId={scriptureFallbackId}
           />
@@ -287,7 +326,7 @@ export function SermonDetail({ sermon, highlightQuery = "" }: SermonDetailProps)
           <SourceDocumentSection
             url={drive}
             title={sermon.title}
-            fullText={sermon.full_text}
+            fullText={searchableText}
             initialTranscriptSearch={transcriptSearch}
           />
         </section>
@@ -298,13 +337,13 @@ export function SermonDetail({ sermon, highlightQuery = "" }: SermonDetailProps)
           <h2 className="text-sm font-medium text-muted-foreground">Media</h2>
           <MediaBlock
             url={media}
-            fullText={sermon.full_text}
+            fullText={searchableText}
             initialTranscriptSearch={transcriptSearch}
           />
         </section>
       )}
 
-      {!sermon.summary && !sermon.full_text && (
+      {!sermon.summary && !searchableText && (
         <p className="text-muted-foreground">No written content for this teaching yet.</p>
       )}
     </article>

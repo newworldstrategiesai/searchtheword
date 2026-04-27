@@ -42,6 +42,8 @@ export type ScriptureRefRow = {
 export type SermonWithKeywords = Sermon & {
   keywords: string[];
   scripture_refs?: ScriptureRefRow[];
+  searchable_text?: string | null;
+  searchable_text_source?: "full_text" | "chunks" | "record" | null;
 };
 
 export type SearchMode = "all" | "scripture" | "topic" | "fulltext";
