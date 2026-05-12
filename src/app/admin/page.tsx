@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { createClient } from "@/lib/supabase/client";
 import type { IngestProgressEvent } from "@/lib/ingest/process";
 import { consumeIngestNdjsonStream } from "@/lib/ingest-client";
+import { fetchReindexEmbeddingsBatched } from "@/lib/embeddings/reindex-batched-fetch";
 import { Button } from "@/components/ui/button";
 import { buttonVariants } from "@/lib/button-variants";
 import { cn } from "@/lib/utils";
@@ -43,7 +44,7 @@ function mergeImportLive(prev: ImportLiveState | null, event: IngestProgressEven
     };
   }
   return {
-    headline: "Importing rows",
+    headline: "Working on rows…",
     totalRows: event.totalRows,
     currentRow: event.dataRow,
     sheetRow: event.sheetRow,
@@ -54,16 +55,16 @@ function mergeImportLive(prev: ImportLiveState | null, event: IngestProgressEven
 
 function maybeToastImportProgress(tid: string | number, event: IngestProgressEvent) {
   if (event.kind === "phase") {
-    toast.loading("Importing…", { id: tid, description: event.message });
+    toast.loading("Uploading…", { id: tid, description: event.message });
     return;
   }
   if (event.kind === "parsed") {
-    toast.loading("Importing…", { id: tid, description: `Processing ${event.rowCount} rows…` });
+    toast.loading("Uploading…", { id: tid, description: `Working on ${event.rowCount} rows…` });
     return;
   }
-  const { dataRow, totalRows, detail } = event;
+  const { dataRow, totalRows } = event;
   if (dataRow === 1 || dataRow % 6 === 0 || dataRow === totalRows) {
-    toast.loading("Importing…", { id: tid, description: `Row ${dataRow}/${totalRows} · ${detail}` });
+    toast.loading("Uploading…", { id: tid, description: `Row ${dataRow} of ${totalRows}` });
   }
 }
 
@@ -103,7 +104,7 @@ export default function AdminPage() {
       <div className="mx-auto max-w-3xl px-4 py-10">
         <div className="flex flex-col items-center justify-center space-y-4">
           <Loader2 className="h-12 w-12 animate-spin text-primary" />
-          <p className="text-lg font-medium">Checking authentication...</p>
+          <p className="text-lg font-medium">Loading…</p>
         </div>
       </div>
     );
@@ -114,14 +115,14 @@ export default function AdminPage() {
     return (
       <div className="mx-auto max-w-3xl px-4 py-10">
         <div className="text-center space-y-4">
-          <h1 className="text-2xl font-bold text-red-600">Access Denied</h1>
-          <p className="text-lg text-muted-foreground">You must be an administrator to access this page.</p>
+          <h1 className="text-2xl font-bold text-red-600">You can’t open this page</h1>
+          <p className="text-lg text-muted-foreground">Ask a leader for the admin login, or go back home.</p>
           <div className="space-x-4">
             <Link href="/" className={cn(buttonVariants({ variant: "outline" }), "inline-flex")}>
-              Back to Home
+              Home
             </Link>
             <Link href="/login" className={cn(buttonVariants(), "inline-flex")}>
-              Admin Login
+              Log in
             </Link>
           </div>
         </div>
@@ -132,17 +133,17 @@ export default function AdminPage() {
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!file) {
-      toast.error("No file selected", { description: "Choose a CSV or Excel file to import." });
-      setStatus("Choose a CSV or Excel file.");
+      toast.error("Pick a file first", { description: "Use a spreadsheet (.csv or Excel)." });
+      setStatus("Pick a spreadsheet file.");
       return;
     }
     setLoading(true);
     setStatus(null);
-    setImportLive({ headline: "Sending file to server…", detail: file.name });
+    setImportLive({ headline: "Sending file…", detail: file.name });
     const form = new FormData();
     form.append("file", file);
 
-    const tid = toast.loading("Importing…", { description: file.name });
+    const tid = toast.loading("Uploading…", { description: file.name });
 
     try {
       const res = await fetch("/api/ingest", {
@@ -154,14 +155,14 @@ export default function AdminPage() {
       if (!res.ok) {
         const json = (await res.json().catch(() => ({}))) as { error?: string };
         const msg = json.error ?? `Upload failed (${res.status})`;
-        toast.error("Import failed", { id: tid, description: msg });
+        toast.error("Upload didn’t work", { id: tid, description: msg });
         setStatus(msg);
         return;
       }
 
       if (!res.body) {
-        toast.error("Import failed", { id: tid, description: "No response body from server." });
-        setStatus("No response from server.");
+        toast.error("Upload didn’t work", { id: tid, description: "No answer from the server." });
+        setStatus("No answer from the server.");
         return;
       }
 
@@ -173,17 +174,17 @@ export default function AdminPage() {
       const ins = json.inserted ?? 0;
       const upd = json.updated ?? 0;
       const notes = json.errors.length ? `Notes: ${json.errors.join("; ")}` : "";
-      toast.success("Import complete", {
+      toast.success("Done", {
         id: tid,
-        description: `Inserted ${ins}, updated ${upd}.${notes ? ` ${notes}` : ""}`,
+        description: `Added ${ins}, updated ${upd}.${notes ? ` ${notes}` : ""}`,
       });
       setStatus(
-        `Inserted ${ins}, updated ${upd}. ${json.errors.length ? `Notes: ${json.errors.join("; ")}` : ""}`,
+        `Added ${ins}, updated ${upd}. ${json.errors.length ? `Notes: ${json.errors.join("; ")}` : ""}`,
       );
       setFile(null);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Could not complete import.";
-      toast.error("Import failed", { id: tid, description: message });
+      toast.error("Upload didn’t work", { id: tid, description: message });
       setStatus(message);
     } finally {
       setLoading(false);
@@ -194,17 +195,17 @@ export default function AdminPage() {
   async function onPdfUpload(e: React.FormEvent) {
     e.preventDefault();
     if (!pdfFile) {
-      toast.error("No PDF selected", { description: "Choose a PDF file first." });
+      toast.error("Pick a PDF first");
       setPdfStatus("Choose a PDF file.");
       return;
     }
     if (!pdfPreacher.trim()) {
-      toast.error("Preacher required", { description: "Enter the preacher name shown for this sermon." });
-      setPdfStatus("Enter the preacher name.");
+      toast.error("Who spoke?", { description: "Type the speaker’s name." });
+      setPdfStatus("Type the speaker’s name.");
       return;
     }
 
-    const tid = toast.loading("Importing PDF…", { description: "Extracting text and saving sermon row." });
+    const tid = toast.loading("Adding PDF…");
     setPdfLoading(true);
     try {
       const body = new FormData();
@@ -228,20 +229,32 @@ export default function AdminPage() {
       };
 
       if (!res.ok) {
-        toast.error("PDF import failed", { id: tid, description: json.error ?? res.statusText });
-        setPdfStatus(json.error ?? "Import failed.");
+        toast.error("PDF didn’t work", { id: tid, description: json.error ?? res.statusText });
+        setPdfStatus(json.error ?? "Something went wrong.");
         return;
       }
 
-      const excerpt = `${json.inserted === false ? "Updated" : "Added"} sermon; ${json.charactersExtracted ?? 0} characters extracted from PDF.`;
-      toast.success("PDF imported", { id: tid, description: excerpt });
-      setPdfStatus(`${excerpt} Edit keywords and details in sermon admin if needed.`);
+      const excerpt = `${json.inserted === false ? "Updated" : "Added"} — pulled ${json.charactersExtracted ?? 0} characters from the PDF.`;
+      toast.success("PDF added", {
+        id: tid,
+        description: excerpt,
+        action:
+          json.id != null
+            ? {
+                label: "See in list",
+                onClick: () => {
+                  window.location.href = `/admin/sermons#${json.id}`;
+                },
+              }
+            : undefined,
+      });
+      setPdfStatus(`${excerpt} You can edit details in All sermons.`);
       setPdfFile(null);
       const input = document.getElementById("pdf") as HTMLInputElement | null;
       if (input) input.value = "";
     } catch (err) {
-      const message = err instanceof Error ? err.message : "PDF import failed.";
-      toast.error("PDF import failed", { id: tid, description: message });
+      const message = err instanceof Error ? err.message : "Something went wrong.";
+      toast.error("PDF didn’t work", { id: tid, description: message });
       setPdfStatus(message);
     } finally {
       setPdfLoading(false);
@@ -252,38 +265,37 @@ export default function AdminPage() {
     const t = toast.loading("Signing out…");
     const supabase = createClient();
     await supabase.auth.signOut();
-    toast.success("Signed out", { id: t, description: "Redirecting to home." });
+    toast.success("Signed out", { id: t, description: "Going to the home page." });
     window.location.href = "/";
   }
 
 
   async function onReindexEmbeddings() {
     setReindexLoading(true);
-    const tid = toast.loading("Reindexing embeddings…", { description: "This may take several minutes." });
+    const tid = toast.loading("Updating search…", { description: "This may take a few minutes." });
     try {
-      const res = await fetch("/api/admin/reindex-embeddings", {
-        method: "POST",
-        credentials: "same-origin",
+      const result = await fetchReindexEmbeddingsBatched({
+        onProgress: ({ totalSermons }) => {
+          toast.loading("Updating search…", {
+            id: tid,
+            description: `Done so far: ${totalSermons} sermons`,
+          });
+        },
       });
-      const json = (await res.json()) as {
-        ok?: boolean;
-        error?: string;
-        sermonsProcessed?: number;
-        chunksWritten?: number;
-        errors?: string[];
-      };
-      if (!res.ok) {
-        toast.error("Reindex failed", { id: tid, description: json.error ?? res.statusText });
+      if (!result.ok) {
+        toast.error("Search update failed", { id: tid, description: result.error });
         return;
       }
       const errNote =
-        json.errors?.length ? ` Warnings: ${json.errors.slice(0, 3).join("; ")}` : "";
-      toast.success("Embeddings reindexed", {
+        result.errors.length > 0
+          ? ` Some sermons had a problem — check with your tech person if search looks wrong.`
+          : "";
+      toast.success("Search updated", {
         id: tid,
-        description: `Processed ${json.sermonsProcessed ?? 0} sermons, ${json.chunksWritten ?? 0} chunks.${errNote}`,
+        description: `Finished ${result.totalSermons} sermons.${errNote}`,
       });
     } catch (e) {
-      toast.error("Reindex failed", {
+      toast.error("Search update failed", {
         id: tid,
         description: e instanceof Error ? e.message : "Unknown error",
       });
@@ -294,9 +306,7 @@ export default function AdminPage() {
 
   async function onBackfillFullText() {
     setBackfillLoading(true);
-    const tid = toast.loading("Pulling text from Google…", {
-      description: "Exports native Docs/Sheets/Slides via Drive API (up to 15 per run).",
-    });
+    const tid = toast.loading("Copying from Google…", { description: "Up to 15 sermons this time." });
     try {
       const res = await fetch("/api/admin/backfill-full-text", {
         method: "POST",
@@ -312,7 +322,7 @@ export default function AdminPage() {
         note?: string;
       };
       if (!res.ok) {
-        toast.error("Backfill failed", { id: tid, description: json.error ?? res.statusText });
+        toast.error("Google copy failed", { id: tid, description: json.error ?? res.statusText });
         return;
       }
       const r = json.results ?? [];
@@ -320,12 +330,12 @@ export default function AdminPage() {
       const e = r.filter((x) => x.status === "error").length;
       const s = r.filter((x) => x.status === "skipped").length;
       const errSample = r.find((x) => x.status === "error")?.detail;
-      toast.success("Backfill batch finished", {
+      toast.success("Google copy finished", {
         id: tid,
-        description: `Updated ${u}, skipped ${s}, errors ${e}.${errSample ? ` First error: ${errSample.slice(0, 120)}${errSample.length > 120 ? "…" : ""}` : ""} Run again for more rows.`,
+        description: `Updated ${u}. Skipped ${s}. Problems: ${e}.${errSample ? ` ${errSample.slice(0, 100)}${errSample.length > 100 ? "…" : ""}` : ""} Click again if you have more.`,
       });
     } catch (e) {
-      toast.error("Backfill failed", {
+      toast.error("Google copy failed", {
         id: tid,
         description: e instanceof Error ? e.message : "Unknown error",
       });
@@ -338,18 +348,15 @@ export default function AdminPage() {
     <div className="mx-auto max-w-3xl space-y-8 px-4 py-10">
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
-          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Admin</p>
-          <h1 className="text-2xl font-bold">Upload &amp; edit</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
-            Import sermons, follow the weekly SOP, and use the template fields below.
-          </p>
+          <h1 className="text-2xl font-bold">Church admin</h1>
+          <p className="mt-1 text-sm text-muted-foreground">Add sermons and keep search working.</p>
         </div>
         <div className="flex flex-wrap gap-2">
           <Link href="/" className={cn(buttonVariants({ variant: "outline", size: "sm" }))}>
             Home
           </Link>
           <Link href="/admin/sermons" className={cn(buttonVariants({ variant: "outline", size: "sm" }))}>
-            All sermons
+            Sermon list
           </Link>
           <Button variant="ghost" size="sm" onClick={() => void signOut()}>
             Sign out
@@ -359,23 +366,20 @@ export default function AdminPage() {
 
       <Tabs defaultValue="upload" className="w-full">
         <TabsList variant="line" className="w-full justify-start">
-          <TabsTrigger value="upload">Upload documents</TabsTrigger>
-          <TabsTrigger value="template">Template &amp; SOP</TabsTrigger>
+          <TabsTrigger value="upload">Add sermons</TabsTrigger>
+          <TabsTrigger value="template">Spreadsheet help</TabsTrigger>
         </TabsList>
 
         <TabsContent value="upload" className="mt-6 space-y-6">
           <Card>
             <CardHeader>
-              <CardTitle>Import sermons (CSV / Excel)</CardTitle>
-              <CardDescription>
-                Primary path for bulk import. Maps columns to your sermon database (title, preacher, date,
-                scripture, summary, full text, keywords, series, etc.).
-              </CardDescription>
+              <CardTitle>Upload a spreadsheet</CardTitle>
+              <CardDescription>Put many sermons in at once with a .csv or Excel file.</CardDescription>
             </CardHeader>
             <CardContent>
               <form onSubmit={(e) => void onSubmit(e)} className="space-y-4">
                 <div className="space-y-2">
-                  <Label htmlFor="sheet">Spreadsheet file</Label>
+                  <Label htmlFor="sheet">File</Label>
                   <Input
                     id="sheet"
                     name="file"
@@ -388,10 +392,10 @@ export default function AdminPage() {
                   {loading ? (
                     <>
                       <Loader2 className="size-4 animate-spin" aria-hidden />
-                      Importing…
+                      Working…
                     </>
                   ) : (
-                    "Upload & import"
+                    "Upload"
                   )}
                 </Button>
 
@@ -416,15 +420,13 @@ export default function AdminPage() {
                               />
                             </div>
                             <p className="text-xs text-muted-foreground">
-                              Data row {importLive.currentRow} of {importLive.totalRows}
-                              {importLive.sheetRow != null ? ` · spreadsheet row ${importLive.sheetRow}` : ""}
+                              Row {importLive.currentRow} of {importLive.totalRows}
                             </p>
                           </>
                         )}
                         {importLive.title && (
                           <p className="truncate text-sm text-foreground" title={importLive.title}>
-                            <span className="text-muted-foreground">Current: </span>
-                            {importLive.title}
+                            Now: {importLive.title}
                           </p>
                         )}
                         {importLive.detail && (
@@ -442,45 +444,82 @@ export default function AdminPage() {
 
           <Card>
             <CardHeader>
-              <CardTitle>Semantic search &amp; Ask (embeddings)</CardTitle>
-              <CardDescription>
-                Rebuild vector chunks for all sermons so Search (mode &quot;All&quot;) can blend semantic matches
-                and Ask can retrieve transcript excerpts. Requires{" "}
-                <code className="rounded bg-muted px-1">OPENAI_API_KEY</code> on the server.
-              </CardDescription>
+              <CardTitle>Add a PDF</CardTitle>
+              <CardDescription>One sermon file at a time. We pull the words out of the PDF for you.</CardDescription>
             </CardHeader>
             <CardContent>
-              <Button
-                type="button"
-                variant="secondary"
-                disabled={reindexLoading}
-                className="gap-2"
-                onClick={() => void onReindexEmbeddings()}
-              >
-                {reindexLoading ? (
-                  <>
-                    <Loader2 className="size-4 animate-spin" aria-hidden />
-                    Reindexing…
-                  </>
-                ) : (
-                  "Reindex all embeddings"
-                )}
-              </Button>
+              <form onSubmit={(e) => void onPdfUpload(e)} className="space-y-4">
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="space-y-2 sm:col-span-2">
+                    <Label htmlFor="pdf-preacher">Who spoke? (required)</Label>
+                    <Input
+                      id="pdf-preacher"
+                      name="preacher"
+                      type="text"
+                      autoComplete="name"
+                      placeholder="Name"
+                      value={pdfPreacher}
+                      onChange={(e) => setPdfPreacher(e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="pdf-title">Title</Label>
+                    <Input
+                      id="pdf-title"
+                      name="title"
+                      type="text"
+                      placeholder="Optional — we can use the file name"
+                      value={pdfTitle}
+                      onChange={(e) => setPdfTitle(e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="pdf-date">Date</Label>
+                    <Input id="pdf-date" name="date" type="date" value={pdfDate} onChange={(e) => setPdfDate(e.target.value)} />
+                  </div>
+                  <div className="space-y-2 sm:col-span-2">
+                    <Label htmlFor="pdf-series">Series</Label>
+                    <Input
+                      id="pdf-series"
+                      name="series"
+                      type="text"
+                      placeholder="Optional"
+                      value={pdfSeries}
+                      onChange={(e) => setPdfSeries(e.target.value)}
+                    />
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="pdf">PDF</Label>
+                  <Input
+                    id="pdf"
+                    name="pdf"
+                    type="file"
+                    accept="application/pdf,.pdf"
+                    onChange={(e) => setPdfFile(e.target.files?.[0] ?? null)}
+                  />
+                </div>
+                <Button type="submit" variant="secondary" disabled={pdfLoading} className="gap-2">
+                  {pdfLoading ? (
+                    <>
+                      <Loader2 className="size-4 animate-spin" aria-hidden />
+                      Working…
+                    </>
+                  ) : (
+                    "Add PDF"
+                  )}
+                </Button>
+                {pdfStatus && <p className="text-sm text-muted-foreground">{pdfStatus}</p>}
+              </form>
             </CardContent>
           </Card>
 
           <Card>
             <CardHeader>
-              <CardTitle>Backfill transcript from Google Drive</CardTitle>
+              <CardTitle>Copy from Google Docs</CardTitle>
               <CardDescription>
-                For sermons that have a <code className="rounded bg-muted px-1">Source document URL</code> or Drive{" "}
-                <code className="rounded bg-muted px-1">media_url</code> but empty{" "}
-                <code className="rounded bg-muted px-1">full_text</code>, pull plain text from{" "}
-                <strong>native</strong> Google Docs, Sheets, or Slides. PDFs and other file types cannot be exported as
-                text automatically — paste a transcript manually or convert to Google Docs first. Set{" "}
-                <code className="rounded bg-muted px-1">GOOGLE_SERVICE_ACCOUNT_JSON</code> on the server and share each
-                file (or folder) with that service account&apos;s <code className="rounded bg-muted px-1">client_email</code>
-                .
+                If a sermon already has a Google Doc link saved, this button copies the words into the site. Only works
+                for Google Docs-style files your tech person has hooked up. Click again to do the next batch.
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-3">
@@ -494,93 +533,39 @@ export default function AdminPage() {
                 {backfillLoading ? (
                   <>
                     <Loader2 className="size-4 animate-spin" aria-hidden />
-                    Backfilling…
+                    Working…
                   </>
                 ) : (
-                  "Backfill full_text from Google (batch)"
+                  "Copy from Google"
                 )}
               </Button>
-              <p className="text-xs text-muted-foreground">
-                Processes up to 15 sermons per click. After backfill, run &quot;Reindex all embeddings&quot; if you use
-                semantic search (or wait — each updated row triggers a background reindex when OpenAI is configured).
-              </p>
             </CardContent>
           </Card>
 
           <Card>
             <CardHeader>
-              <CardTitle>PDF upload (weekly)</CardTitle>
+              <CardTitle>Update search</CardTitle>
               <CardDescription>
-                Target: about <strong>3 sermons per week</strong> as PDFs. Text is extracted on the server and stored as{" "}
-                <code className="rounded bg-muted px-1">full_text</code> for search. Add minimal metadata below; enrich
-                topics/keywords later in sermon admin if needed.
+                Run this after you add or change a lot of sermons. Wait until it finishes — it can take a while.
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <form onSubmit={(e) => void onPdfUpload(e)} className="space-y-4">
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <div className="space-y-2 sm:col-span-2">
-                    <Label htmlFor="pdf-preacher">Preacher name</Label>
-                    <Input
-                      id="pdf-preacher"
-                      name="preacher"
-                      type="text"
-                      autoComplete="name"
-                      placeholder="e.g. Pastor Smith"
-                      value={pdfPreacher}
-                      onChange={(e) => setPdfPreacher(e.target.value)}
-                    />
-                    <p className="text-xs text-muted-foreground">Required. Same field as spreadsheet import.</p>
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="pdf-title">Title (optional)</Label>
-                    <Input
-                      id="pdf-title"
-                      name="title"
-                      type="text"
-                      placeholder="Defaults from filename"
-                      value={pdfTitle}
-                      onChange={(e) => setPdfTitle(e.target.value)}
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="pdf-date">Date (optional)</Label>
-                    <Input id="pdf-date" name="date" type="date" value={pdfDate} onChange={(e) => setPdfDate(e.target.value)} />
-                  </div>
-                  <div className="space-y-2 sm:col-span-2">
-                    <Label htmlFor="pdf-series">Series (optional)</Label>
-                    <Input
-                      id="pdf-series"
-                      name="series"
-                      type="text"
-                      placeholder="Series name"
-                      value={pdfSeries}
-                      onChange={(e) => setPdfSeries(e.target.value)}
-                    />
-                  </div>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="pdf">PDF file</Label>
-                  <Input
-                    id="pdf"
-                    name="pdf"
-                    type="file"
-                    accept="application/pdf,.pdf"
-                    onChange={(e) => setPdfFile(e.target.files?.[0] ?? null)}
-                  />
-                </div>
-                <Button type="submit" variant="secondary" disabled={pdfLoading} className="gap-2">
-                  {pdfLoading ? (
-                    <>
-                      <Loader2 className="size-4 animate-spin" aria-hidden />
-                      Importing…
-                    </>
-                  ) : (
-                    "Import PDF"
-                  )}
-                </Button>
-                {pdfStatus && <p className="text-sm text-muted-foreground">{pdfStatus}</p>}
-              </form>
+              <Button
+                type="button"
+                variant="secondary"
+                disabled={reindexLoading}
+                className="gap-2"
+                onClick={() => void onReindexEmbeddings()}
+              >
+                {reindexLoading ? (
+                  <>
+                    <Loader2 className="size-4 animate-spin" aria-hidden />
+                    Working…
+                  </>
+                ) : (
+                  "Refresh search for all sermons"
+                )}
+              </Button>
             </CardContent>
           </Card>
         </TabsContent>
@@ -588,86 +573,34 @@ export default function AdminPage() {
         <TabsContent value="template" className="mt-6 space-y-6">
           <Card>
             <CardHeader>
-              <CardTitle>Sermon row template</CardTitle>
-              <CardDescription>
-                Each row is one sermon. Align spreadsheet columns with these fields (hashtags / keywords help
-                search).
-              </CardDescription>
+              <CardTitle>What goes in the spreadsheet</CardTitle>
+              <CardDescription>Each row is one sermon. Ask a leader if you are not sure about your columns.</CardDescription>
             </CardHeader>
-            <CardContent className="space-y-4">
-              <div className="overflow-x-auto rounded-lg border border-border">
-                <table className="w-full min-w-[520px] border-collapse text-left text-sm">
-                  <thead>
-                    <tr className="border-b border-border bg-muted/50">
-                      <th className="px-3 py-2 font-semibold">Field</th>
-                      <th className="px-3 py-2 font-semibold">Required</th>
-                      <th className="px-3 py-2 font-semibold">Notes</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-border">
-                    <tr>
-                      <td className="px-3 py-2 font-medium">Title</td>
-                      <td className="px-3 py-2 text-muted-foreground">Yes</td>
-                      <td className="px-3 py-2 text-muted-foreground">Sermon title as shown</td>
-                    </tr>
-                    <tr>
-                      <td className="px-3 py-2 font-medium">Date</td>
-                      <td className="px-3 py-2 text-muted-foreground">Yes</td>
-                      <td className="px-3 py-2 text-muted-foreground">Service date (ISO or spreadsheet date)</td>
-                    </tr>
-                    <tr>
-                      <td className="px-3 py-2 font-medium">Series</td>
-                      <td className="px-3 py-2 text-muted-foreground">Recommended</td>
-                      <td className="px-3 py-2 text-muted-foreground">Series name or season</td>
-                    </tr>
-                    <tr>
-                      <td className="px-3 py-2 font-medium">Transcript</td>
-                      <td className="px-3 py-2 text-muted-foreground">Yes for search</td>
-                      <td className="px-3 py-2 text-muted-foreground">Full text for FTS / snippets</td>
-                    </tr>
-                    <tr>
-                      <td className="px-3 py-2 font-medium">Category / Keywords</td>
-                      <td className="px-3 py-2 text-muted-foreground">Recommended</td>
-                      <td className="px-3 py-2 text-muted-foreground">Subject covered (comma-separated or hashtags)</td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
-              <p className="text-xs text-muted-foreground">
-                Your ingest pipeline may use column names like <code className="rounded bg-muted px-1">sermon_title</code>,{" "}
-                <code className="rounded bg-muted px-1">keywords</code>, <code className="rounded bg-muted px-1">full_text</code> — see
-                import mapping in code.
-              </p>
+            <CardContent className="space-y-3 text-sm text-muted-foreground">
+              <ul className="list-disc space-y-2 pl-5">
+                <li>
+                  <span className="font-medium text-foreground">Must have:</span> title, date, speaker, and the full
+                  words of the sermon (or a strong summary).
+                </li>
+                <li>
+                  <span className="font-medium text-foreground">Nice to have:</span> series name and tags (topics people
+                  might search).
+                </li>
+              </ul>
             </CardContent>
           </Card>
 
           <Card>
             <CardHeader>
-              <CardTitle>Standard operating procedure (SOP)</CardTitle>
-              <CardDescription>Weekly rhythm for the team</CardDescription>
+              <CardTitle>Simple weekly steps</CardTitle>
             </CardHeader>
             <CardContent>
-              <ol className="list-decimal space-y-3 pl-5 text-sm text-muted-foreground">
-                <li>
-                  <strong className="text-foreground">Receive PDFs</strong> (target ~3 per week) and file them in your
-                  church&apos;s document store.
-                </li>
-                <li>
-                  <strong className="text-foreground">Extract transcript</strong> from PDF or recording; paste into the
-                  template row.
-                </li>
-                <li>
-                  <strong className="text-foreground">Add metadata</strong>: title, date, series, category / keyword tags
-                  (hashtags).
-                </li>
-                <li>
-                  <strong className="text-foreground">Upload</strong> the CSV/XLSX via this admin screen to refresh the
-                  searchable database.
-                </li>
-                <li>
-                  <strong className="text-foreground">Verify</strong> on the home page and Search that new sermons appear
-                  and snippets look correct.
-                </li>
+              <ol className="list-decimal space-y-2 pl-5 text-sm text-muted-foreground">
+                <li>Gather the new sermon files or notes.</li>
+                <li>Add them to your spreadsheet (or upload a PDF on the other tab).</li>
+                <li>Upload the spreadsheet here.</li>
+                <li>Tap “Refresh search for all sermons” and wait.</li>
+                <li>Check the home page to see that the new sermon shows up.</li>
               </ol>
             </CardContent>
           </Card>

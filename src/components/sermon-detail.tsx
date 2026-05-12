@@ -10,6 +10,7 @@ import { TranscriptWithSearchContext } from "@/components/transcript-with-search
 import { SearchContextFallback } from "@/components/search-context-fallback";
 import { getGoogleDriveEmbedInfo, isDriveFolderUrl } from "@/lib/google-drive-embed";
 import { seriesListHref } from "@/lib/series-url";
+import { SermonDetailAdminControls } from "@/components/sermon-detail-admin-controls";
 
 function extractYoutubeId(url: string): string | null {
   try {
@@ -232,6 +233,7 @@ export function SermonDetail({ sermon, highlightQuery = "" }: SermonDetailProps)
           <ArrowLeft className="mr-1 h-4 w-4" />
           Back to search
         </Link>
+        <SermonDetailAdminControls sermonId={sermon.id} sermonTitle={sermon.title} />
         <h1 className="text-3xl font-bold tracking-tight text-foreground sm:text-4xl">{sermon.title}</h1>
         <div className="mt-3 flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
           {sermon.external_id && (

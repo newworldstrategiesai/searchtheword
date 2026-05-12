@@ -6,10 +6,14 @@ export async function extractPdfPlaintext(
   buffer: Buffer,
 ): Promise<{ ok: true; text: string } | { ok: false; error: string }> {
   try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports -- see module comment above
-    const pdfParse =
-      require("pdf-parse/lib/pdf-parse.js") as (data: Buffer) => Promise<{ text: string }>;
-    const result = await pdfParse(buffer);
+    const mod = (await import(
+      "pdf-parse/lib/pdf-parse.js"
+    )) as { default?: (data: Buffer) => Promise<{ text: string }> };
+    const fn = mod.default;
+    if (typeof fn !== "function") {
+      throw new Error("pdf-parse: missing default export");
+    }
+    const result = await fn(buffer);
     const text = typeof result?.text === "string" ? result.text.trim() : "";
     if (!text) return { ok: false, error: "Extracted PDF content is empty" };
     return { ok: true, text };

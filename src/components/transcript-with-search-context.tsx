@@ -74,7 +74,7 @@ export function TranscriptWithSearchContext({
   const hasQuery = query.trim().length >= 2;
   const plan = useMemo(() => planMatch(text, query), [text, query]);
   const hasMatch = plan.kind === "literal" && plan.needle !== null;
-  const matchClassName = "scroll-mt-32 rounded-sm bg-primary/20 text-foreground transition-colors duration-200 data-[active=true]:bg-primary data-[active=true]:text-primary-foreground dark:bg-primary/25 dark:data-[active=true]:bg-primary/40";
+  const matchClassName = "scroll-mt-44 lg:scroll-mt-28 rounded-sm bg-primary/20 text-foreground transition-colors duration-200 data-[active=true]:bg-primary data-[active=true]:text-primary-foreground dark:bg-primary/25 dark:data-[active=true]:bg-primary/40";
 
   const { nodes, count } = useMemo(() => {
     if (!hasMatch) return { nodes: [text], count: 0 };
@@ -182,7 +182,7 @@ export function TranscriptWithSearchContext({
 
   return (
     <div className="space-y-4">
-      <div className="sticky top-16 z-10 flex items-center justify-between rounded-lg border border-border bg-background/95 p-2 shadow-sm backdrop-blur-md sm:top-20">
+      <div className="sticky top-[7.5rem] z-30 flex items-center justify-between rounded-lg border border-border bg-background/95 p-2 shadow-sm backdrop-blur-md lg:top-[4.5rem]">
         <div className="flex flex-wrap items-center gap-x-2 gap-y-1 px-2">
           <div className="flex items-center gap-2">
             <Search className="h-4 w-4 text-muted-foreground" />

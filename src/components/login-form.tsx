@@ -1,11 +1,13 @@
 "use client";
 
-import { useRouter, useSearchParams } from "next/navigation";
+import { useSearchParams } from "next/navigation";
 import { useState } from "react";
 import Link from "next/link";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { createClient } from "@/lib/supabase/client";
+import { isAdmin } from "@/lib/auth";
+import { buildPostLoginHref } from "@/lib/post-login";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -13,7 +15,6 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 
 export function LoginForm() {
-  const router = useRouter();
   const searchParams = useSearchParams();
   const redirectParam = searchParams.get("redirect");
   const [email, setEmail] = useState("");
@@ -44,19 +45,23 @@ export function LoginForm() {
         return;
       }
 
-      const user = signData.user;
-      const isUserAdmin = user?.app_metadata?.role === "admin";
-      const destination = isUserAdmin ? "/admin" : (redirectParam ?? "/account");
+      await supabase.auth.getSession();
+      const { data: userData } = await supabase.auth.getUser();
+      const user = userData.user ?? signData.user;
+      const userIsAdmin = isAdmin(user);
+      const destination = buildPostLoginHref({
+        isAdmin: userIsAdmin,
+        redirectParam,
+      });
 
       toast.success("Signed in", {
         id: loadingToast,
-        description: "Loading your workspace…",
+        description: userIsAdmin ? "Opening admin…" : "Loading your workspace…",
         duration: 2800,
       });
 
       setLoading(false);
-      router.push(destination);
-      router.refresh();
+      window.location.assign(destination);
     } catch (err) {
       setLoading(false);
       if (loadingToast !== undefined) toast.dismiss(loadingToast);

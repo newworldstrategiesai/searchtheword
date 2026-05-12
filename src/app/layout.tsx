@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Cormorant_Garamond, Geist_Mono, Source_Sans_3 } from "next/font/google";
 import "../../styles/globals.css";
+import { AskAssistantWidget } from "@/components/ask-assistant-widget";
 import { Header } from "@/components/header";
 import { ThemeProvider } from "@/components/theme-provider";
 import { CHURCH_SEO_KEYWORDS, getMetadataBase, STATIC_OG, staticOgImage } from "@/lib/seo";
@@ -76,6 +77,7 @@ export default function RootLayout({
         <ThemeProvider>
           <Header />
           <main className="flex-1">{children}</main>
+          <AskAssistantWidget />
           <footer className="border-t border-border/60 bg-muted/20 py-10 text-center">
             <div className="mx-auto max-w-5xl px-4">
               <p className="font-heading text-base font-semibold tracking-wide text-foreground">

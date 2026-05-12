@@ -79,6 +79,18 @@ function ChangePasswordForm({ email }: { email: string }) {
 
   return (
     <form onSubmit={(e) => void onSubmit(e)} className="space-y-4">
+      <div className="sr-only">
+        <Label htmlFor="acc-username-readonly">Account email</Label>
+        <Input
+          id="acc-username-readonly"
+          type="email"
+          name="username"
+          autoComplete="username"
+          value={email}
+          readOnly
+          tabIndex={-1}
+        />
+      </div>
       <div className="space-y-2">
         <Label htmlFor="acc-current">Current password</Label>
         <Input

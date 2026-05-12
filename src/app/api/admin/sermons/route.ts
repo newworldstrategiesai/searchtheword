@@ -9,6 +9,18 @@ import { NextResponse } from "next/server";
 
 export const dynamic = "force-dynamic";
 
+function sanitizeIlikeQuery(raw: string): string | null {
+  const t = raw
+    .trim()
+    .replace(/%/g, "")
+    .replace(/_/g, "")
+    .replace(/\s+/g, " ")
+    .slice(0, 120);
+  if (!t) return null;
+  // PostgREST `.or()` splits on commas unless values are quoted — quote patterns.
+  return t.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+}
+
 export async function GET(request: Request) {
   const auth = await getAdminSupabase();
   if (!auth.ok) return auth.response;
@@ -16,13 +28,33 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
   const limit = Math.min(100, Math.max(1, Number.parseInt(searchParams.get("limit") ?? "50", 10) || 50));
   const offset = Math.max(0, Number.parseInt(searchParams.get("offset") ?? "0", 10) || 0);
+  const sort = searchParams.get("sort") === "date" ? "date" : "updated";
+  const docType = searchParams.get("document_type")?.trim() ?? "";
+  const qRaw = searchParams.get("q")?.trim() ?? "";
 
   const { supabase } = auth;
-  const { data: rows, error, count } = await supabase
+  let query = supabase
     .from("sermons")
-    .select("id, title, preacher, date, series, external_id, updated_at", { count: "exact" })
-    .order("date", { ascending: false, nullsFirst: false })
-    .range(offset, offset + limit - 1);
+    .select("id, title, preacher, date, series, external_id, updated_at, document_type", { count: "exact" });
+
+  if (docType) {
+    query = query.eq("document_type", docType);
+  }
+
+  const safeQ = sanitizeIlikeQuery(qRaw);
+  if (safeQ) {
+    const pattern = `%${safeQ}%`;
+    query = query.or(`title.ilike."${pattern}",preacher.ilike."${pattern}"`);
+  }
+
+  if (sort === "date") {
+    query = query.order("date", { ascending: false, nullsFirst: false }).order("updated_at", { ascending: false });
+  } else {
+    // Default: recently touched first — PDFs and manual edits surface without needing a sermon date.
+    query = query.order("updated_at", { ascending: false }).order("date", { ascending: false, nullsFirst: false });
+  }
+
+  const { data: rows, error, count } = await query.range(offset, offset + limit - 1);
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 });
@@ -33,6 +65,7 @@ export async function GET(request: Request) {
     total: count ?? 0,
     limit,
     offset,
+    sort,
   });
 }
 
