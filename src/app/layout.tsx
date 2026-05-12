@@ -77,7 +77,6 @@ export default function RootLayout({
         <ThemeProvider>
           <Header />
           <main className="flex-1">{children}</main>
-          <AskAssistantWidget />
           <footer className="border-t border-border/60 bg-muted/20 py-10 text-center">
             <div className="mx-auto max-w-5xl px-4">
               <p className="font-heading text-base font-semibold tracking-wide text-foreground">
@@ -88,6 +87,7 @@ export default function RootLayout({
               </p>
             </div>
           </footer>
+          <AskAssistantWidget />
         </ThemeProvider>
       </body>
     </html>

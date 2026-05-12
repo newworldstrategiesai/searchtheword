@@ -58,7 +58,7 @@ export default async function HomePage() {
 
   return (
     <div>
-      <section className="relative overflow-hidden border-b border-border/50 bg-gradient-to-b from-accent/30 via-background to-background px-4 py-16 dark:from-primary/10 dark:via-background md:py-24">
+      <section className="relative overflow-x-clip border-b border-border/50 bg-gradient-to-b from-accent/30 via-background to-background px-4 py-16 dark:from-primary/10 dark:via-background md:py-24">
         <div
           className="pointer-events-none absolute inset-0 opacity-[0.35] dark:opacity-20"
           style={{

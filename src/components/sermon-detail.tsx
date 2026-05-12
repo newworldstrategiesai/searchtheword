@@ -265,7 +265,7 @@ export function SermonDetail({ sermon, highlightQuery = "" }: SermonDetailProps)
         {sermon.scripture_ref && !(sermon.scripture_refs && sermon.scripture_refs.length > 0) && (
           <p
             id="sermon-scripture-ref"
-            className="scroll-mt-28 mt-2 text-sm font-medium text-foreground"
+            className="scroll-mt-[max(10rem,calc(env(safe-area-inset-top,0px)+8rem))] mt-2 text-sm font-medium text-foreground lg:scroll-mt-[calc(env(safe-area-inset-top,0px)+5rem)]"
           >
             {sermon.scripture_ref}
           </p>
@@ -273,7 +273,7 @@ export function SermonDetail({ sermon, highlightQuery = "" }: SermonDetailProps)
         {sermon.scripture_refs && sermon.scripture_refs.length > 0 && (
           <ul
             id="sermon-scripture-refs"
-            className="scroll-mt-28 mt-2 list-inside list-disc text-sm text-foreground"
+            className="scroll-mt-[max(10rem,calc(env(safe-area-inset-top,0px)+8rem))] mt-2 list-inside list-disc text-sm text-foreground lg:scroll-mt-[calc(env(safe-area-inset-top,0px)+5rem)]"
           >
             {sermon.scripture_refs.map((r, i) => (
               <li key={`${r.raw}-${i}`}>
@@ -295,7 +295,7 @@ export function SermonDetail({ sermon, highlightQuery = "" }: SermonDetailProps)
       <Separator />
 
       {searchableText && (
-        <section className="scroll-mt-28 space-y-4">
+        <section className="scroll-mt-[max(10rem,calc(env(safe-area-inset-top,0px)+8rem))] space-y-4 lg:scroll-mt-[calc(env(safe-area-inset-top,0px)+5rem)]">
           <div className="space-y-1">
             <h2 className="text-lg font-semibold">{searchableHeading}</h2>
             {searchableDescription && (
