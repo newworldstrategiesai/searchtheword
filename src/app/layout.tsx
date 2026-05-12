@@ -78,10 +78,10 @@ export default function RootLayout({
           <main className="flex-1">{children}</main>
           <footer className="border-t border-border/60 bg-muted/20 py-10 text-center">
             <div className="mx-auto max-w-5xl px-4">
-              <p className="font-heading text-sm font-semibold tracking-wide text-foreground">
+              <p className="font-heading text-base font-semibold tracking-wide text-foreground">
                 SearchTheWord
               </p>
-              <p className="mt-1 text-xs text-muted-foreground">
+              <p className="mt-1 text-sm text-muted-foreground">
                 Sermon discovery for your church — search scripture, topics, and transcripts.
               </p>
             </div>

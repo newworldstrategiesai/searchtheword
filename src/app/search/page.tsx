@@ -141,9 +141,9 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
   return (
     <div className="mx-auto max-w-5xl px-4 py-8">
       <div className="mb-8 space-y-4">
-        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Layer 1 · Searchable database</p>
-        <h1 className="text-2xl font-bold tracking-tight">Search archive</h1>
-        <p className="text-sm text-muted-foreground">
+        <p className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Layer 1 · Searchable database</p>
+        <h1 className="text-3xl font-bold tracking-tight">Search archive</h1>
+        <p className="text-base text-muted-foreground">
           Use the search bar in the header. Choose a mode to focus on scripture references, topics, or full
           text.
         </p>
@@ -159,7 +159,7 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
           }}
         />
         {hasDateFilters && (
-          <p className="text-sm text-muted-foreground">
+          <p className="text-base text-muted-foreground">
             Date filters are applied to the result set after search. For very large archives, narrow your
             query as well.
           </p>
@@ -169,7 +169,7 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
       <div className="grid gap-8 lg:grid-cols-[1fr_16rem]">
         <div className="space-y-6">
           {!error && (
-            <p className="text-sm text-muted-foreground" aria-live="polite">
+            <p className="text-base text-muted-foreground" aria-live="polite">
               {total} result{total === 1 ? "" : "s"}
               {q.trim() ? (
                 <>
@@ -180,7 +180,7 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
             </p>
           )}
           {error && (
-            <div className="rounded-lg border border-destructive/50 bg-destructive/10 px-4 py-3 text-sm text-destructive">
+            <div className="rounded-lg border border-destructive/50 bg-destructive/10 px-4 py-3 text-base text-destructive">
               {error}
               <span className="mt-1 block text-muted-foreground">
                 Set <code className="rounded bg-muted px-1">NEXT_PUBLIC_SUPABASE_URL</code> and{" "}

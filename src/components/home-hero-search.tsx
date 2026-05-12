@@ -58,6 +58,19 @@ export function HomeHeroSearch() {
             aria-hidden
           />
         </h1>
+        <div className="mx-auto max-w-xl space-y-3 text-balance">
+          <p className="text-base font-medium leading-relaxed text-foreground sm:text-lg">
+            Contained herein is the Hidden Manna for the Overcomers
+          </p>
+          <p className="text-sm leading-relaxed text-muted-foreground sm:text-base">
+            —The theological life work of John Shane Vaughn, Founder of The Apostolic Assemblies and First Harvest
+            Ministries International.
+          </p>
+          <p className="text-sm leading-relaxed text-muted-foreground sm:text-base">
+            Within this archive, you may search in rich detail through his sermons, books, and doctrinal treatises—a gift to
+            this generation, and to those who follow, if any remain.
+          </p>
+        </div>
         <p className="mx-auto max-w-lg text-base leading-relaxed text-muted-foreground sm:text-lg">
           Enter your search terms below — then browse results by scripture, topics, or full text.
         </p>

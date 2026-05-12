@@ -15,7 +15,7 @@ export function EmptyState({ query }: EmptyStateProps) {
         <p className="text-lg font-medium">
           {query ? `No sermons found for “${query}”` : "No sermons match your filters"}
         </p>
-        <p className="max-w-md text-sm text-muted-foreground">
+        <p className="max-w-md text-base text-muted-foreground">
           Try a different keyword, scripture reference, or browse topics from the home page.
         </p>
       </div>

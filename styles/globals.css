@@ -129,6 +129,8 @@
   }
   html {
     @apply scroll-smooth;
+    /* ~7% larger root type for readability (vision-friendly); scales rem-based utilities site-wide */
+    font-size: 107%;
   }
   body {
     @apply min-h-dvh bg-background font-sans text-foreground antialiased;

@@ -70,6 +70,11 @@ function maybeToastImportProgress(tid: string | number, event: IngestProgressEve
 export default function AdminPage() {
   const [file, setFile] = useState<File | null>(null);
   const [pdfFile, setPdfFile] = useState<File | null>(null);
+  const [pdfPreacher, setPdfPreacher] = useState("");
+  const [pdfTitle, setPdfTitle] = useState("");
+  const [pdfDate, setPdfDate] = useState("");
+  const [pdfSeries, setPdfSeries] = useState("");
+  const [pdfLoading, setPdfLoading] = useState(false);
   const [status, setStatus] = useState<string | null>(null);
   const [pdfStatus, setPdfStatus] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -186,18 +191,61 @@ export default function AdminPage() {
     }
   }
 
-  function onPdfPlaceholder(e: React.FormEvent) {
+  async function onPdfUpload(e: React.FormEvent) {
     e.preventDefault();
     if (!pdfFile) {
       toast.error("No PDF selected", { description: "Choose a PDF file first." });
       setPdfStatus("Choose a PDF file.");
       return;
     }
-    const msg =
-      "PDF text extraction is not wired yet. Export transcript text from the PDF, then use the spreadsheet template (Title, Date, Series, Transcript, Category/Keywords) and upload as .xlsx or .csv.";
-    toast.info("PDF queued (preview)", { description: msg });
-    setPdfStatus(msg);
-    setPdfFile(null);
+    if (!pdfPreacher.trim()) {
+      toast.error("Preacher required", { description: "Enter the preacher name shown for this sermon." });
+      setPdfStatus("Enter the preacher name.");
+      return;
+    }
+
+    const tid = toast.loading("Importing PDF…", { description: "Extracting text and saving sermon row." });
+    setPdfLoading(true);
+    try {
+      const body = new FormData();
+      body.set("file", pdfFile);
+      body.set("preacher", pdfPreacher.trim());
+      if (pdfTitle.trim()) body.set("title", pdfTitle.trim());
+      if (pdfDate.trim()) body.set("date", pdfDate.trim());
+      if (pdfSeries.trim()) body.set("series", pdfSeries.trim());
+
+      const res = await fetch("/api/admin/upload-pdf", {
+        method: "POST",
+        body,
+        credentials: "same-origin",
+      });
+      const json = (await res.json()) as {
+        ok?: boolean;
+        error?: string;
+        inserted?: boolean;
+        id?: string;
+        charactersExtracted?: number;
+      };
+
+      if (!res.ok) {
+        toast.error("PDF import failed", { id: tid, description: json.error ?? res.statusText });
+        setPdfStatus(json.error ?? "Import failed.");
+        return;
+      }
+
+      const excerpt = `${json.inserted === false ? "Updated" : "Added"} sermon; ${json.charactersExtracted ?? 0} characters extracted from PDF.`;
+      toast.success("PDF imported", { id: tid, description: excerpt });
+      setPdfStatus(`${excerpt} Edit keywords and details in sermon admin if needed.`);
+      setPdfFile(null);
+      const input = document.getElementById("pdf") as HTMLInputElement | null;
+      if (input) input.value = "";
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "PDF import failed.";
+      toast.error("PDF import failed", { id: tid, description: message });
+      setPdfStatus(message);
+    } finally {
+      setPdfLoading(false);
+    }
   }
 
   async function signOut() {
@@ -463,12 +511,54 @@ export default function AdminPage() {
             <CardHeader>
               <CardTitle>PDF upload (weekly)</CardTitle>
               <CardDescription>
-                Target: about <strong>3 sermons per week</strong> as PDFs. Store originals for records; use
-                the template below so transcripts and metadata are searchable.
+                Target: about <strong>3 sermons per week</strong> as PDFs. Text is extracted on the server and stored as{" "}
+                <code className="rounded bg-muted px-1">full_text</code> for search. Add minimal metadata below; enrich
+                topics/keywords later in sermon admin if needed.
               </CardDescription>
             </CardHeader>
             <CardContent>
-              <form onSubmit={onPdfPlaceholder} className="space-y-4">
+              <form onSubmit={(e) => void onPdfUpload(e)} className="space-y-4">
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="space-y-2 sm:col-span-2">
+                    <Label htmlFor="pdf-preacher">Preacher name</Label>
+                    <Input
+                      id="pdf-preacher"
+                      name="preacher"
+                      type="text"
+                      autoComplete="name"
+                      placeholder="e.g. Pastor Smith"
+                      value={pdfPreacher}
+                      onChange={(e) => setPdfPreacher(e.target.value)}
+                    />
+                    <p className="text-xs text-muted-foreground">Required. Same field as spreadsheet import.</p>
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="pdf-title">Title (optional)</Label>
+                    <Input
+                      id="pdf-title"
+                      name="title"
+                      type="text"
+                      placeholder="Defaults from filename"
+                      value={pdfTitle}
+                      onChange={(e) => setPdfTitle(e.target.value)}
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="pdf-date">Date (optional)</Label>
+                    <Input id="pdf-date" name="date" type="date" value={pdfDate} onChange={(e) => setPdfDate(e.target.value)} />
+                  </div>
+                  <div className="space-y-2 sm:col-span-2">
+                    <Label htmlFor="pdf-series">Series (optional)</Label>
+                    <Input
+                      id="pdf-series"
+                      name="series"
+                      type="text"
+                      placeholder="Series name"
+                      value={pdfSeries}
+                      onChange={(e) => setPdfSeries(e.target.value)}
+                    />
+                  </div>
+                </div>
                 <div className="space-y-2">
                   <Label htmlFor="pdf">PDF file</Label>
                   <Input
@@ -479,8 +569,15 @@ export default function AdminPage() {
                     onChange={(e) => setPdfFile(e.target.files?.[0] ?? null)}
                   />
                 </div>
-                <Button type="submit" variant="secondary">
-                  Queue PDF (preview)
+                <Button type="submit" variant="secondary" disabled={pdfLoading} className="gap-2">
+                  {pdfLoading ? (
+                    <>
+                      <Loader2 className="size-4 animate-spin" aria-hidden />
+                      Importing…
+                    </>
+                  ) : (
+                    "Import PDF"
+                  )}
                 </Button>
                 {pdfStatus && <p className="text-sm text-muted-foreground">{pdfStatus}</p>}
               </form>

@@ -34,7 +34,7 @@ export function SearchModeTabs({ q, active, extraParams = {} }: SearchModeTabsPr
             role="tab"
             aria-selected={isActive}
             className={cn(
-              "rounded-full border px-3 py-1 text-sm transition-colors",
+              "rounded-full border px-3 py-1 text-base transition-colors",
               isActive
                 ? "border-primary bg-primary text-primary-foreground"
                 : "border-border bg-muted/40 text-muted-foreground hover:bg-muted",

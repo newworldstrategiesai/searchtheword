@@ -34,6 +34,9 @@ yarn-error.log*
 .env*
 !.env.local.example
 
+# local migration secrets (never commit)
+scripts/migrate-supabase-data.local.env
+
 # vercel
 .vercel
 

@@ -26,7 +26,7 @@ export function SearchFilters({
     <form method="get" action="/search" className="space-y-4 rounded-lg border border-border bg-card p-4">
       <input type="hidden" name="q" value={q} />
       <input type="hidden" name="mode" value={mode} />
-      <p className="text-sm font-medium">Refine results</p>
+      <p className="text-base font-medium">Refine results</p>
       <div className="space-y-2">
         <Label htmlFor="preacher">Speaker / preacher</Label>
         <Input

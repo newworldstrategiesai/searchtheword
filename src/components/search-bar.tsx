@@ -61,7 +61,7 @@ export function SearchBar({ className, defaultQuery = "", variant = "default" }:
           className={cn(
             "w-full",
             isHeader
-              ? "h-9 border-border/80 bg-muted/30 pl-8 text-sm shadow-none dark:bg-muted/20"
+              ? "h-9 border-border/80 bg-muted/30 pl-8 text-base shadow-none dark:bg-muted/20"
               : "min-h-11 pl-9",
           )}
           autoComplete="off"

@@ -40,7 +40,7 @@ export function Pagination({ page, totalPages, basePath, query }: PaginationProp
           Previous
         </Button>
       )}
-      <span className="text-sm text-muted-foreground">
+      <span className="text-base text-muted-foreground">
         Page {page} of {totalPages}
       </span>
       {page < totalPages ? (

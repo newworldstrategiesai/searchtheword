@@ -47,7 +47,7 @@ export function PrimaryNav({ className }: PrimaryNavProps) {
                 key={href}
                 href={href}
                 className={cn(
-                  "inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-2.5 text-xs font-medium transition-colors sm:px-3 sm:py-1.5 sm:text-sm lg:py-1.5 lg:text-[0.8125rem]",
+                  "inline-flex shrink-0 items-center gap-1.5 rounded-full px-2.5 py-2.5 text-sm font-medium transition-colors sm:px-3 sm:py-1.5 sm:text-base lg:py-1.5 lg:text-sm",
                   "min-h-[2.75rem] sm:min-h-0 lg:min-h-0",
                   active
                     ? "bg-primary/12 text-primary shadow-sm ring-1 ring-primary/20 dark:bg-primary/20 dark:ring-primary/30"

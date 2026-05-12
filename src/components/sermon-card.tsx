@@ -64,7 +64,7 @@ export function SermonCard({ sermon, keywords = [], searchableText, highlightQue
             {sermon.title}
           </Link>
         </CardTitle>
-        <CardDescription className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
+        <CardDescription className="flex flex-wrap items-center gap-x-4 gap-y-1 text-base">
           <span className="inline-flex items-center gap-1">
             <User className="h-3.5 w-3.5" aria-hidden />
             {sermon.preacher}
@@ -94,21 +94,21 @@ export function SermonCard({ sermon, keywords = [], searchableText, highlightQue
       <CardContent className="space-y-3">
         {q && transcriptMatches.length > 0 ? (
           <div className="space-y-2">
-            <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            <p className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
               Top matches in this teaching
             </p>
             <ul className="space-y-2">
               {transcriptMatches.map((snippet, index) => (
                 <li
                   key={`${sermon.id}-match-${index}`}
-                  className="rounded-lg border border-border/70 bg-muted/25 p-3 text-sm leading-relaxed text-muted-foreground dark:bg-muted/10"
+                  className="rounded-lg border border-border/70 bg-muted/25 p-3 text-base leading-relaxed text-muted-foreground dark:bg-muted/10"
                 >
                   <p>{renderLiteralHighlight(snippet, q)}</p>
                   <div className="mt-2 flex flex-wrap items-center gap-2">
                     <SearchResultCopyButton textToCopy={stripHtml(snippet)} label="Copy paragraph" />
                     <Link
                       href={sermonHref}
-                      className="inline-flex items-center gap-1 text-xs font-medium text-primary underline-offset-4 transition-colors hover:text-primary/90 hover:underline"
+                      className="inline-flex items-center gap-1 text-sm font-medium text-primary underline-offset-4 transition-colors hover:text-primary/90 hover:underline"
                     >
                       Read this section
                       <ArrowRight className="h-3.5 w-3.5" aria-hidden />
@@ -120,11 +120,11 @@ export function SermonCard({ sermon, keywords = [], searchableText, highlightQue
           </div>
         ) : hl ? (
           <div
-            className="text-sm text-muted-foreground [&_mark]:rounded-sm [&_mark]:bg-primary/20 [&_mark]:text-foreground"
+            className="text-base text-muted-foreground [&_mark]:rounded-sm [&_mark]:bg-primary/20 [&_mark]:text-foreground"
             dangerouslySetInnerHTML={{ __html: sanitizeHeadlineHtml(hl) }}
           />
         ) : (
-          <p className="text-sm text-muted-foreground">{truncated}</p>
+          <p className="text-base text-muted-foreground">{truncated}</p>
         )}
         {keywords.length > 0 && (
           <div className="flex flex-wrap gap-2">
@@ -139,13 +139,13 @@ export function SermonCard({ sermon, keywords = [], searchableText, highlightQue
               <SearchResultCopyButton textToCopy={plainExcerpt} label="Copy paragraph" />
               <Link
                 href={sermonHref}
-                className="inline-flex items-center gap-1 text-sm font-medium text-primary underline-offset-4 transition-colors hover:text-primary/90 hover:underline"
+                className="inline-flex items-center gap-1 text-base font-medium text-primary underline-offset-4 transition-colors hover:text-primary/90 hover:underline"
               >
                 Read more
                 <ArrowRight className="h-3.5 w-3.5" aria-hidden />
               </Link>
             </div>
-            <p className="mt-2 text-xs text-muted-foreground">
+            <p className="mt-2 text-sm text-muted-foreground">
               Opens this sermon and jumps to your highlighted search term when transcript text is available.
             </p>
           </div>
