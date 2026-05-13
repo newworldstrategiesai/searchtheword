@@ -32,12 +32,14 @@ type Msg = {
 
 const ADMIN_INTRO =
   "Hi — I'm your admin copilot. I can help you navigate the app, search the sermon archive, " +
-  "look up sermon details, check who has access, and answer questions about Pastor Vaughn's indexed teachings.\n\n" +
-  "Try asking things like:\n" +
-  '• "How many sermons do we have?"\n' +
-  '• "Show me recent PDF imports"\n' +
-  '• "How do I upload a spreadsheet?"\n' +
-  '• "What did we teach on Romans 8?"';
+  "look up sermon details, check who has access, and answer questions about Pastor Vaughn's indexed teachings.";
+
+const STARTER_PROMPTS: { label: string; message: string }[] = [
+  { label: "How many sermons?", message: "How many sermons do we have?" },
+  { label: "Recent PDF imports", message: "Show me recent PDF imports" },
+  { label: "Upload spreadsheet", message: "How do I upload a spreadsheet?" },
+  { label: "Romans 8", message: "What did we teach on Romans 8?" },
+];
 
 function isProposedActionResult(r: unknown): r is ProposedActionResult {
   return (
@@ -281,20 +283,20 @@ export function AdminAssistantChat({ className }: AdminAssistantChatProps) {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, loading]);
 
-  async function onSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    const text = input.trim();
-    if (!text || loading) return;
+  const showStarterButtons =
+    messages.length === 1 && messages[0]?.role === "assistant" && !loading;
 
-    const nextUser: Msg = { role: "user", content: text };
+  async function sendUserMessage(text: string) {
+    const trimmed = text.trim();
+    if (!trimmed || loading) return;
+
+    const nextUser: Msg = { role: "user", content: trimmed };
+    const historyMessages: Msg[] = [...messages, nextUser];
     setInput("");
-    setMessages((m) => [...m, nextUser]);
+    setMessages(historyMessages);
     setLoading(true);
 
-    const history = [...messages, nextUser].map(({ role, content }) => ({
-      role,
-      content,
-    }));
+    const history = historyMessages.map(({ role, content }) => ({ role, content }));
 
     try {
       const res = await fetch("/api/admin/assistant", {
@@ -358,6 +360,11 @@ export function AdminAssistantChat({ className }: AdminAssistantChatProps) {
     }
   }
 
+  function onSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    void sendUserMessage(input);
+  }
+
   return (
     <div className={cn("flex min-h-0 flex-1 flex-col overflow-hidden", className)}>
       <div className="mb-3 shrink-0 space-y-1 border-b border-border pb-3">
@@ -405,6 +412,26 @@ export function AdminAssistantChat({ className }: AdminAssistantChatProps) {
                 >
                   {m.content}
                 </div>
+                {showStarterButtons && i === 0 && m.role === "assistant" && (
+                  <div className="flex flex-col gap-2 pt-1">
+                    <p className="text-xs font-medium text-muted-foreground">Try one tap:</p>
+                    <div className="flex flex-col gap-2">
+                      {STARTER_PROMPTS.map((p) => (
+                        <Button
+                          key={p.message}
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          disabled={loading}
+                          className="h-auto min-h-9 w-full justify-start whitespace-normal px-3 py-2 text-left text-xs font-normal sm:text-sm"
+                          onClick={() => void sendUserMessage(p.message)}
+                        >
+                          {p.label}
+                        </Button>
+                      ))}
+                    </div>
+                  </div>
+                )}
                 {m.toolResults && m.toolResults.length > 0 && (
                   <ToolResultCards results={m.toolResults} />
                 )}
@@ -457,10 +484,7 @@ export function AdminAssistantChat({ className }: AdminAssistantChatProps) {
           <div ref={bottomRef} />
         </div>
 
-        <form
-          onSubmit={(e) => void onSubmit(e)}
-          className="border-t border-border p-2.5 sm:p-3"
-        >
+        <form onSubmit={onSubmit} className="border-t border-border p-2.5 sm:p-3">
           <div className="flex gap-2">
             <Input
               value={input}

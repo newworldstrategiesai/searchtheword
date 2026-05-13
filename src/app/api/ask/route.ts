@@ -46,6 +46,31 @@ const QUESTION_STOP_WORDS = new Set([
   "with",
 ]);
 
+function openAiFailureReply(status: number, errBody: string): string {
+  let code: string | undefined;
+  let message = "";
+  try {
+    const j = JSON.parse(errBody) as { error?: { code?: string; message?: string } };
+    code = j.error?.code;
+    message = (j.error?.message ?? "").toLowerCase();
+  } catch {
+    /* ignore */
+  }
+  if (code === "insufficient_quota" || message.includes("quota") || message.includes("billing")) {
+    return (
+      "The AI assistant cannot run right now because the OpenAI account has hit its usage limit or billing needs attention. " +
+      "Search still works for browsing sermons. Ask your site admin to check OpenAI billing, then try again."
+    );
+  }
+  if (status === 429 || message.includes("rate limit")) {
+    return "The AI service is busy right now. Wait a minute and try again, or use Search to browse sermons.";
+  }
+  if (status === 401) {
+    return "The AI assistant is misconfigured (API key). Search still works; ask your site admin to fix the server API key.";
+  }
+  return "AI could not respond right now. Try again in a moment, or use Search to browse sermons.";
+}
+
 function buildArchiveSearchQueries(question: string): string[] {
   const raw = question.trim();
   const normalized = raw
@@ -220,9 +245,12 @@ export async function POST(request: Request) {
   if (!res.ok) {
     const errText = await res.text();
     console.error("Ask API chat error:", res.status, errText);
+    /** Do not return RAG citations — the model did not produce an answer, so sources would be misleading. */
+    const reply = openAiFailureReply(res.status, errText);
     return NextResponse.json({
-      reply: "AI could not respond right now. Try again in a moment, or use Search to browse sermons.",
-      citations,
+      reply,
+      citations: [] as AskCitation[],
+      error: errText.slice(0, 400),
     });
   }
 

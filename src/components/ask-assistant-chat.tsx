@@ -65,6 +65,14 @@ export function AskAssistantChat({ variant, className }: AskAssistantChatProps) 
         json.reply ?? (json.error ? `Something went wrong: ${json.error}` : "No reply.");
       if (json.error && !json.reply) {
         toast.error("Assistant could not reply", { description: json.error });
+      } else if (json.error && json.reply) {
+        try {
+          const parsed = JSON.parse(json.error) as { error?: { message?: string } };
+          const m = parsed.error?.message;
+          if (m) toast.error("AI service error", { description: m.slice(0, 200) });
+        } catch {
+          /* inline reply already explains */
+        }
       }
       setMessages((m) => [
         ...m,
