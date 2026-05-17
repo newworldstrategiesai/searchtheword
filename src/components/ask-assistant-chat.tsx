@@ -8,6 +8,8 @@ import { Bot, MessageSquare, Send, User } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
+import { stripAndExtractNavigationBrackets } from "@/lib/assistant-chat-markup";
+import { AssistantMessageBody } from "@/components/assistant-message-body";
 
 export type AskCitation = {
   index: number;
@@ -64,15 +66,7 @@ export function AskAssistantChat({ variant, className }: AskAssistantChatProps) 
       const reply =
         json.reply ?? (json.error ? `Something went wrong: ${json.error}` : "No reply.");
       if (json.error && !json.reply) {
-        toast.error("Assistant could not reply", { description: json.error });
-      } else if (json.error && json.reply) {
-        try {
-          const parsed = JSON.parse(json.error) as { error?: { message?: string } };
-          const m = parsed.error?.message;
-          if (m) toast.error("AI service error", { description: m.slice(0, 200) });
-        } catch {
-          /* inline reply already explains */
-        }
+        toast.error("Assistant could not reply", { description: json.error.slice(0, 200) });
       }
       setMessages((m) => [
         ...m,
@@ -145,7 +139,12 @@ export function AskAssistantChat({ variant, className }: AskAssistantChatProps) 
             isPage ? "min-h-[280px] md:min-h-[360px] md:p-6" : "min-h-0",
           )}
         >
-          {messages.map((m, i) => (
+          {messages.map((m, i) => {
+            const bracketParsed =
+              m.role === "assistant" ? stripAndExtractNavigationBrackets(m.content) : null;
+            const bubbleText = bracketParsed ? bracketParsed.cleanText : m.content;
+
+            return (
             <div
               key={i}
               className={cn("flex gap-2 sm:gap-3", m.role === "user" ? "flex-row-reverse" : "flex-row")}
@@ -169,8 +168,21 @@ export function AskAssistantChat({ variant, className }: AskAssistantChatProps) 
                       : "bg-muted/80 text-foreground",
                   )}
                 >
-                  {m.content}
+                  <AssistantMessageBody role={m.role} content={bubbleText} />
                 </div>
+                {bracketParsed && bracketParsed.navigations.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5">
+                    {bracketParsed.navigations.map((n, ni) => (
+                      <Link
+                        key={`${n.url}-${ni}`}
+                        href={n.url}
+                        className="inline-flex items-center gap-1 rounded-md border border-primary/30 bg-primary/5 px-2 py-1 text-xs font-medium text-primary hover:bg-primary/10 dark:bg-primary/10 dark:hover:bg-primary/20"
+                      >
+                        {n.label}
+                      </Link>
+                    ))}
+                  </div>
+                )}
                 {m.role === "assistant" && m.citations && m.citations.length > 0 && (
                   <div className="rounded-xl border border-border/80 bg-background/80 px-2.5 py-2 text-xs dark:bg-background/40 sm:px-3">
                     <p className="mb-1.5 font-medium text-muted-foreground">Sources</p>
@@ -197,7 +209,8 @@ export function AskAssistantChat({ variant, className }: AskAssistantChatProps) 
                 )}
               </div>
             </div>
-          ))}
+            );
+          })}
           {loading && (
             <div className="flex gap-2 sm:gap-3">
               <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-border bg-muted sm:h-8 sm:w-8">

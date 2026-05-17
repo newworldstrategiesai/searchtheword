@@ -82,6 +82,12 @@ export default function AdminPage() {
   const [importLive, setImportLive] = useState<ImportLiveState | null>(null);
   const [reindexLoading, setReindexLoading] = useState(false);
   const [backfillLoading, setBackfillLoading] = useState(false);
+  const [dedupeLoading, setDedupeLoading] = useState(false);
+  const [driveSetup, setDriveSetup] = useState<{
+    googleDriveExportConfigured: boolean;
+    serviceAccountEmail: string | null;
+    maxPerBatch: number;
+  } | null>(null);
   const [isAuthenticated, setIsAuthenticated] = useState<boolean | null>(null);
 
   // Check authentication on mount
@@ -97,6 +103,33 @@ export default function AdminPage() {
     };
     checkAuth();
   }, []);
+
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await fetch("/api/admin/backfill-full-text", { credentials: "same-origin" });
+        const j = (await res.json()) as {
+          googleDriveExportConfigured?: boolean;
+          serviceAccountEmail?: string | null;
+          maxPerBatch?: number;
+        };
+        if (!cancelled && res.ok) {
+          setDriveSetup({
+            googleDriveExportConfigured: Boolean(j.googleDriveExportConfigured),
+            serviceAccountEmail: j.serviceAccountEmail ?? null,
+            maxPerBatch: typeof j.maxPerBatch === "number" ? j.maxPerBatch : 40,
+          });
+        }
+      } catch {
+        /* ignore */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isAuthenticated]);
 
   // Show loading while checking auth
   if (isAuthenticated === null) {
@@ -270,6 +303,52 @@ export default function AdminPage() {
   }
 
 
+  async function onDedupeSermons(apply: boolean) {
+    setDedupeLoading(true);
+    const tid = toast.loading(apply ? "Removing duplicates…" : "Scanning for duplicates…");
+    try {
+      const res = await fetch("/api/admin/dedupe-sermons", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
+        body: JSON.stringify({ dryRun: !apply }),
+      });
+      const json = (await res.json()) as {
+        error?: string;
+        totalSermons?: number;
+        duplicateGroups?: number;
+        toDelete?: number;
+        toKeep?: number;
+        deleted?: number;
+        sampleGroups?: { keeperTitle: string; removeCount: number }[];
+      };
+      if (!res.ok) {
+        toast.error("Duplicate scan failed", { id: tid, description: json.error ?? res.statusText });
+        return;
+      }
+      if (apply) {
+        toast.success("Duplicates removed", {
+          id: tid,
+          description: `Deleted ${json.deleted ?? 0} rows. ${json.toKeep ?? 0} sermons remain.`,
+        });
+        return;
+      }
+      const sample =
+        json.sampleGroups?.slice(0, 3).map((g) => `"${g.keeperTitle}" (×${g.removeCount + 1})`).join(", ") ?? "";
+      toast.success("Duplicate scan complete", {
+        id: tid,
+        description: `${json.totalSermons ?? 0} total · ${json.duplicateGroups ?? 0} duplicate groups · would remove ${json.toDelete ?? 0}.${sample ? ` e.g. ${sample}` : ""}`,
+      });
+    } catch (e) {
+      toast.error("Duplicate scan failed", {
+        id: tid,
+        description: e instanceof Error ? e.message : "Unknown error",
+      });
+    } finally {
+      setDedupeLoading(false);
+    }
+  }
+
   async function onReindexEmbeddings() {
     setReindexLoading(true);
     const tid = toast.loading("Updating search…", { description: "This may take a few minutes." });
@@ -304,25 +383,48 @@ export default function AdminPage() {
     }
   }
 
-  async function onBackfillFullText() {
+  async function onBackfillFullText(untilDone: boolean) {
     setBackfillLoading(true);
-    const tid = toast.loading("Copying from Google…", { description: "Up to 15 sermons this time." });
+    const limit = driveSetup?.maxPerBatch ?? 40;
+    const tid = toast.loading(
+      untilDone ? "Copying from Google (all batches)…" : "Copying from Google…",
+      {
+        description: untilDone
+          ? "Runs multiple batches until no more succeed, or time limit."
+          : `Up to ${limit} rows this run.`,
+      },
+    );
     try {
       const res = await fetch("/api/admin/backfill-full-text", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         credentials: "same-origin",
-        body: JSON.stringify({ limit: 15 }),
+        body: JSON.stringify(untilDone ? { until_done: true } : { limit }),
       });
       const json = (await res.json()) as {
         ok?: boolean;
         error?: string;
+        until_done?: boolean;
+        aggregate?: {
+          iterations: number;
+          total_updated: number;
+          total_errors: number;
+          total_skipped: number;
+          stopped_reason: string;
+        };
         results?: Array<{ id: string; status: string; detail?: string }>;
-        serviceAccountEmail?: string | null;
         note?: string;
       };
       if (!res.ok) {
         toast.error("Google copy failed", { id: tid, description: json.error ?? res.statusText });
+        return;
+      }
+      if (json.until_done && json.aggregate) {
+        const a = json.aggregate;
+        toast.success("Google copy finished", {
+          id: tid,
+          description: `${a.total_updated} updated · ${a.total_skipped} skipped · ${a.total_errors} errors · ${a.iterations} batch(es) · ${a.stopped_reason}.${json.note ? ` ${json.note}` : ""}`,
+        });
         return;
       }
       const r = json.results ?? [];
@@ -332,7 +434,7 @@ export default function AdminPage() {
       const errSample = r.find((x) => x.status === "error")?.detail;
       toast.success("Google copy finished", {
         id: tid,
-        description: `Updated ${u}. Skipped ${s}. Problems: ${e}.${errSample ? ` ${errSample.slice(0, 100)}${errSample.length > 100 ? "…" : ""}` : ""} Click again if you have more.`,
+        description: `Updated ${u}. Skipped ${s}. Problems: ${e}.${errSample ? ` ${errSample.slice(0, 100)}${errSample.length > 100 ? "…" : ""}` : ""} Run again or use Copy all if you have more.`,
       });
     } catch (e) {
       toast.error("Google copy failed", {
@@ -345,11 +447,10 @@ export default function AdminPage() {
   }
 
   return (
-    <div className="mx-auto max-w-3xl space-y-8 px-4 py-10">
+    <div className="mx-auto max-w-4xl space-y-8 px-4 py-10">
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="text-2xl font-bold">Church admin</h1>
-          <p className="mt-1 text-sm text-muted-foreground">Add sermons and keep search working.</p>
         </div>
         <div className="flex flex-wrap gap-2">
           <Link href="/" className={cn(buttonVariants({ variant: "outline", size: "sm" }))}>
@@ -368,13 +469,13 @@ export default function AdminPage() {
         <TabsList variant="line" className="w-full justify-start">
           <TabsTrigger value="upload">Add sermons</TabsTrigger>
           <TabsTrigger value="template">Spreadsheet help</TabsTrigger>
+          <TabsTrigger value="advanced">Advanced</TabsTrigger>
         </TabsList>
 
         <TabsContent value="upload" className="mt-6 space-y-6">
           <Card>
-            <CardHeader>
-              <CardTitle>Upload a spreadsheet</CardTitle>
-              <CardDescription>Put many sermons in at once with a .csv or Excel file.</CardDescription>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base">Spreadsheet</CardTitle>
             </CardHeader>
             <CardContent>
               <form onSubmit={(e) => void onSubmit(e)} className="space-y-4">
@@ -443,9 +544,8 @@ export default function AdminPage() {
           </Card>
 
           <Card>
-            <CardHeader>
-              <CardTitle>Add a PDF</CardTitle>
-              <CardDescription>One sermon file at a time. We pull the words out of the PDF for you.</CardDescription>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base">PDF</CardTitle>
             </CardHeader>
             <CardContent>
               <form onSubmit={(e) => void onPdfUpload(e)} className="space-y-4">
@@ -468,7 +568,7 @@ export default function AdminPage() {
                       id="pdf-title"
                       name="title"
                       type="text"
-                      placeholder="Optional — we can use the file name"
+                      placeholder="Optional"
                       value={pdfTitle}
                       onChange={(e) => setPdfTitle(e.target.value)}
                     />
@@ -513,22 +613,68 @@ export default function AdminPage() {
               </form>
             </CardContent>
           </Card>
+        </TabsContent>
 
+        <TabsContent value="template" className="mt-6 space-y-4">
+          <Card>
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base">Columns & steps</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4 text-sm text-muted-foreground">
+              <ul className="list-disc space-y-1 pl-5">
+                <li>Each row = one sermon.</li>
+                <li>Need: title, date, speaker, sermon text (or summary).</li>
+                <li>Optional: series, topics, keywords.</li>
+              </ul>
+              <ol className="list-decimal space-y-1 pl-5">
+                <li>Add rows (or use a PDF on Add sermons).</li>
+                <li>Upload the file on Add sermons.</li>
+                <li>
+                  On <span className="font-medium text-foreground">Advanced</span>: refresh search, then check the site.
+                </li>
+              </ol>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
+        <TabsContent value="advanced" className="mt-6 space-y-6">
           <Card>
             <CardHeader>
-              <CardTitle>Copy from Google Docs</CardTitle>
-              <CardDescription>
-                If a sermon already has a Google Doc link saved, this button copies the words into the site. Only works
-                for Google Docs-style files your tech person has hooked up. Click again to do the next batch.
-              </CardDescription>
+              <CardTitle>Tools</CardTitle>
+              <CardDescription>Run after bulk imports or when Drive text is missing.</CardDescription>
             </CardHeader>
-            <CardContent className="space-y-3">
+            <CardContent className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                disabled={dedupeLoading || backfillLoading || reindexLoading}
+                className="gap-2"
+                onClick={() => void onDedupeSermons(false)}
+              >
+                {dedupeLoading ? (
+                  <>
+                    <Loader2 className="size-4 animate-spin" aria-hidden />
+                    Working…
+                  </>
+                ) : (
+                  "Scan for duplicates"
+                )}
+              </Button>
+              <Button
+                type="button"
+                variant="destructive"
+                disabled={dedupeLoading || backfillLoading || reindexLoading}
+                className="gap-2"
+                onClick={() => void onDedupeSermons(true)}
+              >
+                Remove duplicates
+              </Button>
               <Button
                 type="button"
                 variant="secondary"
                 disabled={backfillLoading}
                 className="gap-2"
-                onClick={() => void onBackfillFullText()}
+                onClick={() => void onBackfillFullText(false)}
               >
                 {backfillLoading ? (
                   <>
@@ -539,17 +685,15 @@ export default function AdminPage() {
                   "Copy from Google"
                 )}
               </Button>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>Update search</CardTitle>
-              <CardDescription>
-                Run this after you add or change a lot of sermons. Wait until it finishes — it can take a while.
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={backfillLoading}
+                className="gap-2"
+                onClick={() => void onBackfillFullText(true)}
+              >
+                Copy all (until idle)
+              </Button>
               <Button
                 type="button"
                 variant="secondary"
@@ -568,40 +712,159 @@ export default function AdminPage() {
               </Button>
             </CardContent>
           </Card>
-        </TabsContent>
 
-        <TabsContent value="template" className="mt-6 space-y-6">
           <Card>
             <CardHeader>
-              <CardTitle>What goes in the spreadsheet</CardTitle>
-              <CardDescription>Each row is one sermon. Ask a leader if you are not sure about your columns.</CardDescription>
+              <CardTitle>What “Copy from Google” does</CardTitle>
             </CardHeader>
-            <CardContent className="space-y-3 text-sm text-muted-foreground">
-              <ul className="list-disc space-y-2 pl-5">
+            <CardContent className="space-y-4 text-sm leading-relaxed text-muted-foreground">
+              <p>
+                The site stores each sermon as a database row. Some rows have a Google Drive link but an empty{" "}
+                <code className="rounded bg-muted px-1 py-0.5 text-xs text-foreground">full_text</code> field. The
+                backfill job finds those rows and asks Google’s API (using a{" "}
+                <strong className="text-foreground">service account</strong>, not anyone’s personal login) to export
+                readable text from native Google files (Docs, Sheets, Slides) and, where supported, PDFs on Drive. Each
+                single run processes up to{" "}
+                <strong className="text-foreground">{driveSetup?.maxPerBatch ?? 40}</strong> sermons that still need
+                text (capped so one web request stays within hosting time limits and Google rate limits).{" "}
+                <strong className="text-foreground">Copy all (until idle)</strong> runs many batches in one request:
+                it keeps going until a full batch produces zero successful exports (nothing left to pull, or only
+                errors/skips left), or it hits a time budget (~2 minutes) or a safety cap on total rows — then you can
+                run it again to continue.
+              </p>
+              <p>
+                <strong className="text-foreground">“File not found” or repeated errors</strong> usually means the file
+                or its parent folder was never shared with the service account. Google only returns content the account
+                can read. Share the Doc/Sheet/Slide (or the whole folder / Shared drive) with this email as{" "}
+                <em>Viewer</em> (or higher):
+              </p>
+              {driveSetup?.serviceAccountEmail ? (
+                <p className="rounded-md border border-border bg-muted/50 px-3 py-2 font-mono text-xs text-foreground dark:bg-muted/30">
+                  {driveSetup.serviceAccountEmail}
+                </p>
+              ) : (
+                <p>
+                  The server could not read a service-account email (check{" "}
+                  <code className="rounded bg-muted px-1 py-0.5 text-xs text-foreground">GOOGLE_SERVICE_ACCOUNT_JSON</code>{" "}
+                  is set and valid). Your tech person can open the JSON and copy the{" "}
+                  <code className="rounded bg-muted px-1 py-0.5 text-xs text-foreground">client_email</code> field — that
+                  is the address to share with.
+                </p>
+              )}
+              <p>
+                Rows that show <strong className="text-foreground">updated</strong> in logs are files the service
+                account could read (export succeeded). Rows that show <strong className="text-foreground">error</strong>{" "}
+                are often the same few file IDs until those files are shared. PDFs uploaded directly on the Add sermons
+                tab do not need Drive sharing for search text; Drive PDFs still need access if you rely on this job.
+              </p>
+              <p className="text-xs">
+                Google Drive export configured:{" "}
+                <span className="font-medium text-foreground">
+                  {driveSetup?.googleDriveExportConfigured ? "yes" : "unknown / no"}
+                </span>
+                .
+              </p>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>What “Refresh search for all sermons” does</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-4 text-sm leading-relaxed text-muted-foreground">
+              <p>
+                Ask / search uses embeddings over chunks of sermon text. After you import or edit many rows, chunk rows
+                in <code className="rounded bg-muted px-1 py-0.5 text-xs text-foreground">sermon_chunks</code> need to
+                be rebuilt and re-embedded. This button calls the admin reindex API in batches until every sermon is
+                covered. It requires <code className="rounded bg-muted px-1 py-0.5 text-xs text-foreground">OPENAI_API_KEY</code>{" "}
+                (or your configured embedding provider) on the server. It can take several minutes on large libraries;
+                leave the tab open until the toast reports completion.
+              </p>
+              <p>
+                If some sermons fail, the toast may mention errors — often missing body text, oversized content, or API
+                limits. Fix the underlying sermon row and run refresh again.
+              </p>
+            </CardContent>
+          </Card>
+
+          <Card>
+            <CardHeader>
+              <CardTitle>Environment checklist (operators)</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-2 text-sm text-muted-foreground">
+              <ul className="list-disc space-y-1 pl-5">
                 <li>
-                  <span className="font-medium text-foreground">Must have:</span> title, date, speaker, and the full
-                  words of the sermon (or a strong summary).
+                  <code className="rounded bg-muted px-1 text-xs text-foreground">OPENAI_API_KEY</code> — required for
+                  embeddings / reindex.
                 </li>
                 <li>
-                  <span className="font-medium text-foreground">Nice to have:</span> series name and tags (topics people
-                  might search).
+                  <code className="rounded bg-muted px-1 text-xs text-foreground">GOOGLE_SERVICE_ACCOUNT_JSON</code> —
+                  required for Drive export / backfill; must be the full JSON key for the account you share files with.
                 </li>
+                <li>Supabase service role + URL — used by ingest and admin routes.</li>
               </ul>
             </CardContent>
           </Card>
 
           <Card>
             <CardHeader>
-              <CardTitle>Simple weekly steps</CardTitle>
+              <CardTitle>Spreadsheet column aliases (ingest)</CardTitle>
             </CardHeader>
-            <CardContent>
-              <ol className="list-decimal space-y-2 pl-5 text-sm text-muted-foreground">
-                <li>Gather the new sermon files or notes.</li>
-                <li>Add them to your spreadsheet (or upload a PDF on the other tab).</li>
-                <li>Upload the spreadsheet here.</li>
-                <li>Tap “Refresh search for all sermons” and wait.</li>
-                <li>Check the home page to see that the new sermon shows up.</li>
-              </ol>
+            <CardContent className="overflow-x-auto text-sm text-muted-foreground">
+              <table className="w-full min-w-[28rem] border-collapse text-left text-xs">
+                <thead>
+                  <tr className="border-b border-border text-foreground">
+                    <th className="py-2 pr-3 font-medium">Concept</th>
+                    <th className="py-2 pr-3 font-medium">Example column names</th>
+                  </tr>
+                </thead>
+                <tbody className="align-top">
+                  <tr className="border-b border-border/60">
+                    <td className="py-2 pr-3">Stable ID (updates, not duplicates)</td>
+                    <td className="py-2 font-mono text-[11px] text-foreground/90">
+                      id, external_id, sermon_id, record_id
+                    </td>
+                  </tr>
+                  <tr className="border-b border-border/60">
+                    <td className="py-2 pr-3">Title</td>
+                    <td className="py-2 font-mono text-[11px] text-foreground/90">sermon_title, title</td>
+                  </tr>
+                  <tr className="border-b border-border/60">
+                    <td className="py-2 pr-3">Speaker</td>
+                    <td className="py-2 font-mono text-[11px] text-foreground/90">speaker, preacher</td>
+                  </tr>
+                  <tr className="border-b border-border/60">
+                    <td className="py-2 pr-3">Date</td>
+                    <td className="py-2 font-mono text-[11px] text-foreground/90">date, date_delivered</td>
+                  </tr>
+                  <tr className="border-b border-border/60">
+                    <td className="py-2 pr-3">Series</td>
+                    <td className="py-2 font-mono text-[11px] text-foreground/90">series</td>
+                  </tr>
+                  <tr className="border-b border-border/60">
+                    <td className="py-2 pr-3">Summary</td>
+                    <td className="py-2 font-mono text-[11px] text-foreground/90">summary</td>
+                  </tr>
+                  <tr className="border-b border-border/60">
+                    <td className="py-2 pr-3">Body / transcript</td>
+                    <td className="py-2 font-mono text-[11px] text-foreground/90">full_text</td>
+                  </tr>
+                  <tr className="border-b border-border/60">
+                    <td className="py-2 pr-3">Topics & keyword labels</td>
+                    <td className="py-2 font-mono text-[11px] text-foreground/90">topics, keywords</td>
+                  </tr>
+                  <tr className="border-b border-border/60">
+                    <td className="py-2 pr-3">Media or Drive link</td>
+                    <td className="py-2 font-mono text-[11px] text-foreground/90">
+                      media_url, google_drive_link (also sets stored Drive URL)
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+              <p className="mt-3 text-xs">
+                Exact matching is defined in ingest code; if a column is ignored, try one of the aliases above or ask
+                your developer to add a new header synonym.
+              </p>
             </CardContent>
           </Card>
         </TabsContent>

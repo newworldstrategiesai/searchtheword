@@ -10,6 +10,7 @@ import {
 import { parseScriptureRefToParts, splitScriptureRefs } from "@/lib/ingest/scripture-parse";
 
 import { scheduleSermonEmbeddingReindex } from "@/lib/embeddings/schedule-reindex";
+import { extractGoogleDriveFileId } from "@/lib/google-drive-embed";
 
 export type KeywordKind = "topic" | "keyword" | "doctrine" | "legacy";
 
@@ -296,6 +297,73 @@ function rowPreacher(row: Record<string, string>): string {
   return (row.speaker || row.preacher || "").trim();
 }
 
+function rowExternalId(row: Record<string, string>): string | null {
+  const raw = row.id || row.external_id || row.sermon_id || row.record_id || "";
+  return raw.trim() || null;
+}
+
+type SermonMatchRow = { id: string; external_id: string | null; created_at: string | null };
+
+function pickBestSermonMatch(rows: SermonMatchRow[], preferredExternalId: string | null): string | null {
+  if (!rows.length) return null;
+  if (rows.length === 1) return rows[0]!.id;
+  if (preferredExternalId) {
+    const byExt = rows.find((r) => r.external_id === preferredExternalId);
+    if (byExt) return byExt.id;
+    const unassigned = rows.find((r) => !r.external_id);
+    if (unassigned) return unassigned.id;
+  }
+  return rows[0]!.id;
+}
+
+/**
+ * Resolves an existing sermon for upsert: external_id, Drive file id, then title/speaker/date.
+ */
+async function findExistingSermonForIngest(
+  supabase: SupabaseClient,
+  opts: {
+    externalId: string | null;
+    title: string;
+    preacher: string;
+    date: string | null;
+    driveUrl: string | null;
+  },
+): Promise<string | null> {
+  const select = "id, external_id, created_at";
+
+  if (opts.externalId) {
+    const { data } = await supabase
+      .from("sermons")
+      .select(select)
+      .eq("external_id", opts.externalId)
+      .maybeSingle();
+    if (data?.id) return data.id;
+  }
+
+  const driveUrl = opts.driveUrl?.trim() || null;
+  const fileId = driveUrl ? extractGoogleDriveFileId(driveUrl) : null;
+  if (fileId) {
+    const { data: driveMatches } = await supabase
+      .from("sermons")
+      .select(select)
+      .or(`google_drive_url.ilike.%${fileId}%,media_url.ilike.%${fileId}%`)
+      .order("created_at", { ascending: true })
+      .limit(5);
+    const picked = pickBestSermonMatch(driveMatches ?? [], opts.externalId);
+    if (picked) return picked;
+  }
+
+  let titleQuery = supabase
+    .from("sermons")
+    .select(select)
+    .eq("title", opts.title)
+    .eq("preacher", opts.preacher);
+  titleQuery = opts.date ? titleQuery.eq("date", opts.date) : titleQuery.is("date", null);
+
+  const { data: titleMatches } = await titleQuery.order("created_at", { ascending: true }).limit(5);
+  return pickBestSermonMatch(titleMatches ?? [], opts.externalId);
+}
+
 export async function ingestRows(
   supabase: SupabaseClient,
   rows: Record<string, string>[],
@@ -338,15 +406,8 @@ export async function ingestRows(
       continue;
     }
 
-    const externalId = row.id?.trim() || null;
-    onProgress?.({
-      kind: "row",
-      dataRow,
-      totalRows,
-      sheetRow,
-      title,
-      detail: externalId ? "Matching external ID…" : "Inserting new sermon…",
-    });
+    const externalId = rowExternalId(row);
+    const driveUrl = row.google_drive_link?.trim() || row.media_url?.trim() || null;
 
     const date = rowDate(row);
     const primaryRaw = row.primary_scripture?.trim() || null;
@@ -354,7 +415,7 @@ export async function ingestRows(
     const scriptureRef = normalizeScriptureRef(primaryRaw || row.scripture_reference) || null;
 
     const partNum = row.part_number?.trim() ? Number.parseInt(row.part_number, 10) : null;
-    const payload = {
+    const payload: Record<string, unknown> = {
       title,
       preacher,
       date,
@@ -362,7 +423,6 @@ export async function ingestRows(
       summary: row.summary?.trim() || null,
       full_text: row.full_text?.trim() || null,
       media_url: row.media_url?.trim() || row.google_drive_link?.trim() || null,
-      external_id: externalId,
       series: row.series?.trim() || null,
       part_number: Number.isFinite(partNum!) ? partNum : null,
       document_type: row.document_type?.trim() || null,
@@ -377,33 +437,40 @@ export async function ingestRows(
       metadata_confidence: row.metadata_confidence?.trim() || null,
       ai_training_approved: row.ai_training_approved?.trim() || null,
     };
+    if (externalId) payload.external_id = externalId;
 
-    let sermonId: string | null = null;
+    onProgress?.({
+      kind: "row",
+      dataRow,
+      totalRows,
+      sheetRow,
+      title,
+      detail: "Matching existing sermon…",
+    });
 
-    if (externalId) {
-      const { data: existing } = await supabase
-        .from("sermons")
-        .select("id")
-        .eq("external_id", externalId)
-        .maybeSingle();
-      if (existing?.id) {
-        onProgress?.({
-          kind: "row",
-          dataRow,
-          totalRows,
-          sheetRow,
-          title,
-          detail: "Updating sermon row…",
-        });
-        const { error: upErr } = await supabase.from("sermons").update(payload).eq("id", existing.id);
-        if (upErr) {
-          errors.push(`${rowLabel}: ${upErr.message}`);
-          continue;
-        }
-        sermonId = existing.id;
-        await supabase.from("sermon_keywords").delete().eq("sermon_id", sermonId);
-        updated++;
+    let sermonId: string | null = await findExistingSermonForIngest(supabase, {
+      externalId,
+      title,
+      preacher,
+      date,
+      driveUrl,
+    });
+
+    if (sermonId) {
+      onProgress?.({
+        kind: "row",
+        dataRow,
+        totalRows,
+        sheetRow,
+        title,
+        detail: "Updating sermon row…",
+      });
+      const { error: upErr } = await supabase.from("sermons").update(payload).eq("id", sermonId);
+      if (upErr) {
+        errors.push(`${rowLabel}: ${upErr.message}`);
+        continue;
       }
+      updated++;
     }
 
     if (!sermonId) {
@@ -461,8 +528,8 @@ export async function ingestRows(
     scheduleSermonEmbeddingReindex(supabase, {
       id: sid,
       title,
-      full_text: payload.full_text,
-      summary: payload.summary,
+      full_text: (payload.full_text as string | null | undefined) ?? null,
+      summary: (payload.summary as string | null | undefined) ?? null,
     });
   }
 

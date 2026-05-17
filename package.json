@@ -9,6 +9,7 @@
     "start": "next start",
     "lint": "eslint",
     "ingest": "tsx scripts/ingest.ts",
+    "dedupe:sermons": "tsx scripts/dedupe-sermons.ts --dry-run",
     "generate:og": "tsx scripts/generate-og-images.ts"
   },
   "dependencies": {

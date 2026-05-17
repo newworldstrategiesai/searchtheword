@@ -1,7 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 import {
@@ -17,10 +16,15 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import type { ProposedAction, ToolResult } from "@/lib/admin-assistant/tools";
+import {
+  isAssistantNavChipResult,
+  mergeSuggestNavigationChips,
+  stripAndExtractNavigationBrackets,
+} from "@/lib/assistant-chat-markup";
+import { AssistantMessageBody } from "@/components/assistant-message-body";
 import type { AskCitation } from "@/components/ask-assistant-chat";
 import { fetchReindexEmbeddingsBatched } from "@/lib/embeddings/reindex-batched-fetch";
 
-type NavResult = { url: string; label: string };
 type ProposedActionResult = { proposed_action: ProposedAction };
 
 type Msg = {
@@ -50,28 +54,15 @@ function isProposedActionResult(r: unknown): r is ProposedActionResult {
   );
 }
 
-function isNavResult(r: unknown): r is NavResult {
+function NavChip({ result }: { result: { url: string; label: string } }) {
   return (
-    r != null &&
-    typeof r === "object" &&
-    "url" in r &&
-    "label" in r &&
-    typeof (r as NavResult).url === "string" &&
-    typeof (r as NavResult).label === "string"
-  );
-}
-
-function NavChip({ result }: { result: NavResult }) {
-  const router = useRouter();
-  return (
-    <button
-      type="button"
-      onClick={() => router.push(result.url)}
+    <Link
+      href={result.url}
       className="inline-flex items-center gap-1.5 rounded-lg border border-primary/30 bg-primary/5 px-2.5 py-1.5 text-xs font-medium text-primary transition-colors hover:bg-primary/10 dark:bg-primary/10 dark:hover:bg-primary/20"
     >
       <ArrowRight className="size-3" aria-hidden />
       {result.label}
-    </button>
+    </Link>
   );
 }
 
@@ -181,8 +172,8 @@ function ProposedActionCard({ action }: { action: ProposedAction }) {
 
 function ToolResultCards({ results }: { results: ToolResult[] }) {
   const navResults = results
-    .filter((r) => r.name === "suggest_navigation" && isNavResult(r.result))
-    .map((r) => r.result as NavResult);
+    .filter((r) => r.name === "suggest_navigation" && isAssistantNavChipResult(r.result))
+    .map((r) => r.result as { url: string; label: string });
 
   const proposedActions = results
     .filter((r) => r.name === "propose_action" && isProposedActionResult(r.result))
@@ -379,98 +370,108 @@ export function AdminAssistantChat({ className }: AdminAssistantChatProps) {
 
       <div className="flex min-h-0 flex-1 flex-col rounded-xl border border-border bg-card/50 shadow-sm">
         <div className="min-h-0 flex-1 space-y-4 overflow-y-auto p-4">
-          {messages.map((m, i) => (
-            <div
-              key={i}
-              className={cn(
-                "flex gap-2 sm:gap-3",
-                m.role === "user" ? "flex-row-reverse" : "flex-row",
-              )}
-            >
+          {messages.map((m, i) => {
+            const bracketParsed =
+              m.role === "assistant" ? stripAndExtractNavigationBrackets(m.content) : null;
+            const bubbleText = bracketParsed ? bracketParsed.cleanText : m.content;
+            const displayToolResults =
+              m.role === "assistant"
+                ? mergeSuggestNavigationChips(m.toolResults, bracketParsed?.navigations ?? [])
+                : m.toolResults;
+
+            return (
               <div
+                key={i}
                 className={cn(
-                  "flex h-7 w-7 shrink-0 items-center justify-center rounded-full border sm:h-8 sm:w-8",
-                  m.role === "user"
-                    ? "border-primary/30 bg-primary/10 text-primary"
-                    : "border-amber-500/30 bg-amber-500/10 text-amber-600 dark:border-amber-400/30 dark:bg-amber-400/10 dark:text-amber-400",
+                  "flex gap-2 sm:gap-3",
+                  m.role === "user" ? "flex-row-reverse" : "flex-row",
                 )}
               >
-                {m.role === "user" ? (
-                  <User className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
-                ) : (
-                  <Bot className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
-                )}
-              </div>
-              <div className="min-w-0 max-w-[90%] space-y-2">
                 <div
                   className={cn(
-                    "rounded-2xl px-3 py-2 text-sm leading-relaxed whitespace-pre-wrap sm:px-4 sm:py-2.5",
+                    "flex h-7 w-7 shrink-0 items-center justify-center rounded-full border sm:h-8 sm:w-8",
                     m.role === "user"
-                      ? "bg-primary text-primary-foreground"
-                      : "bg-muted/80 text-foreground",
+                      ? "border-primary/30 bg-primary/10 text-primary"
+                      : "border-amber-500/30 bg-amber-500/10 text-amber-600 dark:border-amber-400/30 dark:bg-amber-400/10 dark:text-amber-400",
                   )}
                 >
-                  {m.content}
+                  {m.role === "user" ? (
+                    <User className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+                  ) : (
+                    <Bot className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
+                  )}
                 </div>
-                {showStarterButtons && i === 0 && m.role === "assistant" && (
-                  <div className="flex flex-col gap-2 pt-1">
-                    <p className="text-xs font-medium text-muted-foreground">Try one tap:</p>
-                    <div className="flex flex-col gap-2">
-                      {STARTER_PROMPTS.map((p) => (
-                        <Button
-                          key={p.message}
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          disabled={loading}
-                          className="h-auto min-h-9 w-full justify-start whitespace-normal px-3 py-2 text-left text-xs font-normal sm:text-sm"
-                          onClick={() => void sendUserMessage(p.message)}
-                        >
-                          {p.label}
-                        </Button>
-                      ))}
-                    </div>
+                <div className="min-w-0 max-w-[90%] space-y-2">
+                  <div
+                    className={cn(
+                      "rounded-2xl px-3 py-2 text-sm leading-relaxed whitespace-pre-wrap sm:px-4 sm:py-2.5",
+                      m.role === "user"
+                        ? "bg-primary text-primary-foreground"
+                        : "bg-muted/80 text-foreground",
+                    )}
+                  >
+                    <AssistantMessageBody role={m.role} content={bubbleText} />
                   </div>
-                )}
-                {m.toolResults && m.toolResults.length > 0 && (
-                  <ToolResultCards results={m.toolResults} />
-                )}
-                {m.citations && m.citations.length > 0 && (
-                  <div className="rounded-xl border border-border/80 bg-background/80 px-2.5 py-2 text-xs dark:bg-background/40 sm:px-3">
-                    <p className="mb-1.5 font-medium text-muted-foreground">
-                      Sources
-                    </p>
-                    <ul className="space-y-1.5">
-                      {m.citations.map((c) => (
-                        <li key={`${c.sermonId}-${c.index}`}>
-                          <span className="font-mono text-[0.65rem] text-muted-foreground sm:text-[0.7rem]">
-                            [{c.index}]
-                          </span>{" "}
-                          <Link
-                            href={`/sermon/${c.sermonId}`}
-                            className="font-medium text-primary underline-offset-2 hover:underline"
+                  {showStarterButtons && i === 0 && m.role === "assistant" && (
+                    <div className="flex flex-col gap-2 pt-1">
+                      <p className="text-xs font-medium text-muted-foreground">Try one tap:</p>
+                      <div className="flex flex-col gap-2">
+                        {STARTER_PROMPTS.map((p) => (
+                          <Button
+                            key={p.message}
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            disabled={loading}
+                            className="h-auto min-h-9 w-full justify-start whitespace-normal px-3 py-2 text-left text-xs font-normal sm:text-sm"
+                            onClick={() => void sendUserMessage(p.message)}
                           >
-                            {c.title}
-                          </Link>
-                          {c.date && (
-                            <span className="text-muted-foreground">
-                              {" "}
-                              · {c.date}
-                            </span>
-                          )}
-                          {c.excerpt && (
-                            <p className="mt-0.5 line-clamp-2 text-muted-foreground">
-                              {c.excerpt}
-                            </p>
-                          )}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
+                            {p.label}
+                          </Button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {displayToolResults && displayToolResults.length > 0 && (
+                    <ToolResultCards results={displayToolResults} />
+                  )}
+                  {m.citations && m.citations.length > 0 && (
+                    <div className="rounded-xl border border-border/80 bg-background/80 px-2.5 py-2 text-xs dark:bg-background/40 sm:px-3">
+                      <p className="mb-1.5 font-medium text-muted-foreground">
+                        Sources
+                      </p>
+                      <ul className="space-y-1.5">
+                        {m.citations.map((c) => (
+                          <li key={`${c.sermonId}-${c.index}`}>
+                            <span className="font-mono text-[0.65rem] text-muted-foreground sm:text-[0.7rem]">
+                              [{c.index}]
+                            </span>{" "}
+                            <Link
+                              href={`/sermon/${c.sermonId}`}
+                              className="font-medium text-primary underline-offset-2 hover:underline"
+                            >
+                              {c.title}
+                            </Link>
+                            {c.date && (
+                              <span className="text-muted-foreground">
+                                {" "}
+                                · {c.date}
+                              </span>
+                            )}
+                            {c.excerpt && (
+                              <p className="mt-0.5 line-clamp-2 text-muted-foreground">
+                                {c.excerpt}
+                              </p>
+                            )}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
           {loading && (
             <div className="flex gap-2 sm:gap-3">
               <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-amber-500/30 bg-amber-500/10 sm:h-8 sm:w-8">
