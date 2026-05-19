@@ -64,12 +64,16 @@ export type IngestProgressEvent =
 
 export type IngestOptions = {
   onProgress?: (event: IngestProgressEvent) => void;
+  /** When false (default), skip per-row embedding work during bulk import — run batched reindex after. */
+  scheduleEmbeddingReindex?: boolean;
 };
 
 const HEADER_FIXES: Record<string, string> = {
   seconday_scriptures: "secondary_scriptures",
   secondary_scripture: "secondary_scriptures",
   metadate_confidence: "metadata_confidence",
+  /** Excel export when column A has no header (FHMI IDs like FHMI-0001). */
+  __empty: "id",
 };
 
 export function normalizeHeaderKey(h: string): string {
@@ -130,57 +134,73 @@ export function parseXlsxBuffer(buffer: ArrayBuffer | Buffer): Record<string, st
   return rows.map((row) => normalizeRowKeys(row));
 }
 
-async function getOrCreateKeywordId(
-  supabase: SupabaseClient,
-  name: string,
-  kind: KeywordKind,
-): Promise<string | null> {
-  const { data: existing } = await supabase
-    .from("keywords")
-    .select("id")
-    .eq("name", name)
-    .eq("kind", kind)
-    .maybeSingle();
-  if (existing?.id) return existing.id;
+type KeywordPair = { name: string; kind: KeywordKind };
 
-  const { data: created, error } = await supabase
-    .from("keywords")
-    .insert({ name, kind })
-    .select("id")
-    .single();
-
-  if (error) {
-    const retry = await supabase
-      .from("keywords")
-      .select("id")
-      .eq("name", name)
-      .eq("kind", kind)
-      .maybeSingle();
-    return retry.data?.id ?? null;
-  }
-  return created?.id ?? null;
+function keywordPairKey(name: string, kind: KeywordKind): string {
+  return `${kind}\0${name}`;
 }
 
-async function linkKeyword(
+function looksLikeHttpUrl(value: string): boolean {
+  try {
+    const u = new URL(value.trim());
+    return u.protocol === "http:" || u.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+/** Resolve many (name, kind) pairs in a few round-trips instead of one per tag. */
+async function resolveKeywordIds(
   supabase: SupabaseClient,
-  sermonId: string,
-  name: string,
-  kind: KeywordKind,
-  errors: string[],
-  rowLabel: string,
-) {
-  const kid = await getOrCreateKeywordId(supabase, name, kind);
-  if (!kid) {
-    errors.push(`${rowLabel}: could not create keyword "${name}" (${kind})`);
-    return;
+  pairs: KeywordPair[],
+): Promise<Map<string, string>> {
+  const map = new Map<string, string>();
+  if (!pairs.length) return map;
+
+  const unique: KeywordPair[] = [];
+  const seen = new Set<string>();
+  for (const p of pairs) {
+    const key = keywordPairKey(p.name, p.kind);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    unique.push(p);
   }
-  const { error: linkErr } = await supabase.from("sermon_keywords").insert({
-    sermon_id: sermonId,
-    keyword_id: kid,
-  });
-  if (linkErr && !linkErr.message.includes("duplicate")) {
-    errors.push(`${rowLabel}: link "${name}": ${linkErr.message}`);
+
+  const names = [...new Set(unique.map((p) => p.name))];
+  const { data: existing, error: fetchErr } = await supabase
+    .from("keywords")
+    .select("id, name, kind")
+    .in("name", names);
+
+  if (!fetchErr) {
+    for (const row of existing ?? []) {
+      map.set(keywordPairKey(row.name, row.kind as KeywordKind), row.id);
+    }
   }
+
+  const missing = unique.filter((p) => !map.has(keywordPairKey(p.name, p.kind)));
+  if (!missing.length) return map;
+
+  const { data: created, error: insErr } = await supabase
+    .from("keywords")
+    .insert(missing.map((p) => ({ name: p.name, kind: p.kind })))
+    .select("id, name, kind");
+
+  if (!insErr) {
+    for (const row of created ?? []) {
+      map.set(keywordPairKey(row.name, row.kind as KeywordKind), row.id);
+    }
+    return map;
+  }
+
+  const { data: retry } = await supabase
+    .from("keywords")
+    .select("id, name, kind")
+    .in("name", missing.map((p) => p.name));
+  for (const row of retry ?? []) {
+    map.set(keywordPairKey(row.name, row.kind as KeywordKind), row.id);
+  }
+  return map;
 }
 
 async function replaceScriptureRefs(
@@ -260,15 +280,30 @@ export async function syncSermonDerivedRelations(
 ): Promise<void> {
   await supabase.from("sermon_keywords").delete().eq("sermon_id", sermonId);
 
-  for (const t of splitTagList(opts.topics)) {
-    await linkKeyword(supabase, sermonId, t, "topic", errors, rowLabel);
-  }
-  for (const k of splitTagList(opts.keywords)) {
-    await linkKeyword(supabase, sermonId, k, "keyword", errors, rowLabel);
-  }
+  const pairs: KeywordPair[] = [];
+  for (const t of splitTagList(opts.topics)) pairs.push({ name: t, kind: "topic" });
+  for (const k of splitTagList(opts.keywords)) pairs.push({ name: k, kind: "keyword" });
   if (opts.core_doctrine?.trim()) {
-    const d = opts.core_doctrine.trim().toLowerCase();
-    await linkKeyword(supabase, sermonId, d, "doctrine", errors, rowLabel);
+    pairs.push({ name: opts.core_doctrine.trim().toLowerCase(), kind: "doctrine" });
+  }
+
+  if (pairs.length) {
+    const idMap = await resolveKeywordIds(supabase, pairs);
+    const links: Array<{ sermon_id: string; keyword_id: string }> = [];
+    for (const p of pairs) {
+      const kid = idMap.get(keywordPairKey(p.name, p.kind));
+      if (!kid) {
+        errors.push(`${rowLabel}: could not create keyword "${p.name}" (${p.kind})`);
+        continue;
+      }
+      links.push({ sermon_id: sermonId, keyword_id: kid });
+    }
+    if (links.length) {
+      const { error: linkErr } = await supabase.from("sermon_keywords").insert(links);
+      if (linkErr && !linkErr.message.includes("duplicate")) {
+        errors.push(`${rowLabel}: link keywords: ${linkErr.message}`);
+      }
+    }
   }
 
   await replaceScriptureRefs(
@@ -298,7 +333,8 @@ function rowPreacher(row: Record<string, string>): string {
 }
 
 function rowExternalId(row: Record<string, string>): string | null {
-  const raw = row.id || row.external_id || row.sermon_id || row.record_id || "";
+  const raw =
+    row.id || row.__empty || row.external_id || row.sermon_id || row.record_id || "";
   return raw.trim() || null;
 }
 
@@ -341,7 +377,8 @@ async function findExistingSermonForIngest(
   }
 
   const driveUrl = opts.driveUrl?.trim() || null;
-  const fileId = driveUrl ? extractGoogleDriveFileId(driveUrl) : null;
+  const fileId =
+    driveUrl && looksLikeHttpUrl(driveUrl) ? extractGoogleDriveFileId(driveUrl) : null;
   if (fileId) {
     const { data: driveMatches } = await supabase
       .from("sermons")
@@ -370,6 +407,7 @@ export async function ingestRows(
   options?: IngestOptions,
 ): Promise<IngestResult> {
   const onProgress = options?.onProgress;
+  const scheduleEmbeddingReindex = options?.scheduleEmbeddingReindex === true;
   const errors: string[] = [];
   let inserted = 0;
   let updated = 0;
@@ -407,7 +445,11 @@ export async function ingestRows(
     }
 
     const externalId = rowExternalId(row);
-    const driveUrl = row.google_drive_link?.trim() || row.media_url?.trim() || null;
+    const rawDrive = row.google_drive_link?.trim() || "";
+    const rawMedia = row.media_url?.trim() || "";
+    const driveUrl =
+      (rawDrive && looksLikeHttpUrl(rawDrive) ? rawDrive : null) ||
+      (rawMedia && looksLikeHttpUrl(rawMedia) ? rawMedia : null);
 
     const date = rowDate(row);
     const primaryRaw = row.primary_scripture?.trim() || null;
@@ -422,13 +464,13 @@ export async function ingestRows(
       scripture_ref: scriptureRef,
       summary: row.summary?.trim() || null,
       full_text: row.full_text?.trim() || null,
-      media_url: row.media_url?.trim() || row.google_drive_link?.trim() || null,
+      media_url: driveUrl,
       series: row.series?.trim() || null,
       part_number: Number.isFinite(partNum!) ? partNum : null,
       document_type: row.document_type?.trim() || null,
       primary_scripture_raw: primaryRaw,
       secondary_scriptures_raw: secondaryRaw,
-      google_drive_url: row.google_drive_link?.trim() || null,
+      google_drive_url: rawDrive && looksLikeHttpUrl(rawDrive) ? rawDrive : null,
       folder: row.folder?.trim() || null,
       core_doctrine: row.core_doctrine?.trim() || null,
       doctrinal_position: row.doctrinal_position?.trim() || null,
@@ -525,12 +567,14 @@ export async function ingestRows(
       rowLabel,
     );
 
-    scheduleSermonEmbeddingReindex(supabase, {
-      id: sid,
-      title,
-      full_text: (payload.full_text as string | null | undefined) ?? null,
-      summary: (payload.summary as string | null | undefined) ?? null,
-    });
+    if (scheduleEmbeddingReindex) {
+      scheduleSermonEmbeddingReindex(supabase, {
+        id: sid,
+        title,
+        full_text: (payload.full_text as string | null | undefined) ?? null,
+        summary: (payload.summary as string | null | undefined) ?? null,
+      });
+    }
   }
 
   return { inserted, updated, errors };

@@ -207,12 +207,16 @@ export default function AdminPage() {
       const ins = json.inserted ?? 0;
       const upd = json.updated ?? 0;
       const notes = json.errors.length ? `Notes: ${json.errors.join("; ")}` : "";
+      const reindexHint =
+        ins + upd > 0
+          ? " Open Advanced → Refresh search for all sermons so Ask/search includes this import."
+          : "";
       toast.success("Done", {
         id: tid,
-        description: `Added ${ins}, updated ${upd}.${notes ? ` ${notes}` : ""}`,
+        description: `Added ${ins}, updated ${upd}.${notes ? ` ${notes}` : ""}${reindexHint}`,
       });
       setStatus(
-        `Added ${ins}, updated ${upd}. ${json.errors.length ? `Notes: ${json.errors.join("; ")}` : ""}`,
+        `Added ${ins}, updated ${upd}. ${json.errors.length ? `Notes: ${json.errors.join("; ")}` : ""}${reindexHint}`,
       );
       setFile(null);
     } catch (err) {

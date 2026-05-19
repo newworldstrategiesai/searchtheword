@@ -1,10 +1,13 @@
-import { isAdmin } from "@/lib/auth";
 import type { IngestProgressEvent, IngestResult } from "@/lib/ingest/process";
 import { ingestFromCsvString, ingestFromXlsxBuffer } from "@/lib/ingest/process";
-import { createServerSupabaseClient } from "@/lib/supabase/server";
+import { getAdminSupabase } from "@/lib/require-admin";
+import { createAdminSupabaseClient } from "@/lib/supabase/admin";
 import { NextResponse } from "next/server";
 
 export const dynamic = "force-dynamic";
+export const runtime = "nodejs";
+/** Bulk spreadsheet ingest can run many DB round-trips; default serverless limit (~60s) cuts off mid-file. */
+export const maxDuration = 300;
 
 type IngestStreamPayload =
   | { type: "progress"; event: IngestProgressEvent }
@@ -12,14 +15,10 @@ type IngestStreamPayload =
   | { type: "error"; message: string };
 
 export async function POST(request: Request) {
-  const supabase = await createServerSupabaseClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const auth = await getAdminSupabase();
+  if (!auth.ok) return auth.response;
 
-  if (!isAdmin(user)) {
-    return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
-  }
+  const supabase = createAdminSupabaseClient();
 
   const form = await request.formData();
   const file = form.get("file");
@@ -49,9 +48,10 @@ export async function POST(request: Request) {
           send({ type: "progress", event });
         };
 
+        const ingestOpts = { onProgress, scheduleEmbeddingReindex: false as const };
         const result = isXlsx
-          ? await ingestFromXlsxBuffer(supabase, buffer, { onProgress })
-          : await ingestFromCsvString(supabase, new TextDecoder().decode(buffer), { onProgress });
+          ? await ingestFromXlsxBuffer(supabase, buffer, ingestOpts)
+          : await ingestFromCsvString(supabase, new TextDecoder().decode(buffer), ingestOpts);
 
         send({ type: "complete", result });
       } catch (err) {
@@ -67,6 +67,7 @@ export async function POST(request: Request) {
     headers: {
       "Content-Type": "application/x-ndjson; charset=utf-8",
       "Cache-Control": "no-store",
+      "X-Accel-Buffering": "no",
     },
   });
 }

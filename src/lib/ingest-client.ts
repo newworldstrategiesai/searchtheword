@@ -16,6 +16,8 @@ export async function consumeIngestNdjsonStream(
   const decoder = new TextDecoder();
   let buffer = "";
   let result: IngestResult | null = null;
+  let lastRowCurrent = 0;
+  let lastRowTotal = 0;
 
   function processLine(line: string) {
     const trimmed = line.trim();
@@ -27,6 +29,10 @@ export async function consumeIngestNdjsonStream(
       return;
     }
     if (msg.type === "progress") {
+      if (msg.event.kind === "row") {
+        lastRowCurrent = msg.event.dataRow;
+        lastRowTotal = msg.event.totalRows;
+      }
       onProgress(msg.event);
     } else if (msg.type === "complete") {
       result = msg.result;
@@ -49,7 +55,13 @@ export async function consumeIngestNdjsonStream(
     processLine(buffer);
   }
   if (!result) {
-    throw new Error("Import did not return a result");
+    const progress =
+      lastRowTotal > 0
+        ? ` (stopped around row ${lastRowCurrent} of ${lastRowTotal})`
+        : "";
+    throw new Error(
+      `Import stopped before it could finish${progress}. The connection may have timed out. Rows processed before the stop may already be saved — check Admin → Sermons. Then open Advanced → “Refresh search for all sermons” so Ask/search picks up new text.`,
+    );
   }
   return result;
 }
