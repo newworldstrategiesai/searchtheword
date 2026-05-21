@@ -9,6 +9,12 @@ const nextConfig: NextConfig = {
   turbopack: {
     root: projectRoot,
   },
+  experimental: {
+    // Allow PDF uploads up to 20 MB (default is 4 MB)
+    serverActions: {
+      bodySizeLimit: "20mb",
+    },
+  },
 };
 
 export default nextConfig;

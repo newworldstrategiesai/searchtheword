@@ -257,7 +257,7 @@ export default function AdminPage() {
         body,
         credentials: "same-origin",
       });
-      const json = (await res.json()) as {
+      const json = (await res.json().catch(() => ({}))) as {
         ok?: boolean;
         error?: string;
         inserted?: boolean;
@@ -266,8 +266,12 @@ export default function AdminPage() {
       };
 
       if (!res.ok) {
-        toast.error("PDF didn’t work", { id: tid, description: json.error ?? res.statusText });
-        setPdfStatus(json.error ?? "Something went wrong.");
+        const desc =
+          res.status === 413
+            ? "The PDF is too large to upload. Try a smaller file."
+            : (json.error ?? res.statusText);
+        toast.error("PDF didn’t work", { id: tid, description: desc });
+        setPdfStatus(desc);
         return;
       }
 
