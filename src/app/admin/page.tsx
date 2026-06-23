@@ -81,6 +81,8 @@ export default function AdminPage() {
   const [loading, setLoading] = useState(false);
   const [importLive, setImportLive] = useState<ImportLiveState | null>(null);
   const [reindexLoading, setReindexLoading] = useState(false);
+  const [indexChangedLoading, setIndexChangedLoading] = useState(false);
+  const [previewLoading, setPreviewLoading] = useState(false);
   const [backfillLoading, setBackfillLoading] = useState(false);
   const [dedupeLoading, setDedupeLoading] = useState(false);
   const [driveSetup, setDriveSetup] = useState<{
@@ -209,7 +211,7 @@ export default function AdminPage() {
       const notes = json.errors.length ? `Notes: ${json.errors.join("; ")}` : "";
       const reindexHint =
         ins + upd > 0
-          ? " Open Advanced → Refresh search for all sermons so Ask/search includes this import."
+          ? " Open Advanced → “Index new/changed sermons only” to add this import to Ask/search (shows a cost preview first)."
           : "";
       toast.success("Done", {
         id: tid,
@@ -357,6 +359,137 @@ export default function AdminPage() {
     }
   }
 
+  async function onPreviewFile() {
+    if (!file) {
+      toast.error("Pick a file first", { description: "Choose a spreadsheet (.csv or Excel)." });
+      return;
+    }
+    setPreviewLoading(true);
+    const tid = toast.loading("Checking file…", { description: file.name });
+    try {
+      const form = new FormData();
+      form.append("file", file);
+      form.append("preview", "1");
+      const res = await fetch("/api/ingest", {
+        method: "POST",
+        body: form,
+        credentials: "same-origin",
+      });
+      const json = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        preview?: {
+          totalRows: number;
+          newRows: number;
+          changedRows: number;
+          unchangedRows: number;
+          duplicateRows: number;
+          errors: string[];
+        };
+      };
+      if (!res.ok || !json.preview) {
+        const msg = json.error ?? `Preview failed (${res.status})`;
+        toast.error("Preview failed", { id: tid, description: msg });
+        setStatus(msg);
+        return;
+      }
+      const p = json.preview;
+      const skipped = p.errors.length;
+      const summary = `Total ${p.totalRows} · New ${p.newRows} · Changed ${p.changedRows} · Unchanged ${p.unchangedRows} · Duplicates ${p.duplicateRows}${skipped ? ` · ${skipped} skipped` : ""}`;
+      toast.success("File preview (nothing saved)", { id: tid, description: summary });
+      setStatus(
+        `Preview — ${summary}.${skipped ? ` Notes: ${p.errors.slice(0, 5).join("; ")}${p.errors.length > 5 ? "…" : ""}` : ""}`,
+      );
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Could not preview file.";
+      toast.error("Preview failed", { id: tid, description: message });
+      setStatus(message);
+    } finally {
+      setPreviewLoading(false);
+    }
+  }
+
+  async function onIndexChangedOnly() {
+    setIndexChangedLoading(true);
+    const tid = toast.loading("Checking what needs indexing…");
+    try {
+      const res = await fetch("/api/admin/index-status", { credentials: "same-origin" });
+      const json = (await res.json().catch(() => ({}))) as {
+        error?: string;
+        embeddingsConfigured?: boolean;
+        plan?: {
+          model: string;
+          counts: { total: number; new: number; changed: number; upToDate: number; empty: number };
+          estimate: { sermons: number; chunks: number; requests: number; tokens: number; costUsd: number };
+        };
+      };
+      if (!res.ok || !json.plan) {
+        toast.error("Could not check", { id: tid, description: json.error ?? `Failed (${res.status})` });
+        return;
+      }
+      if (!json.embeddingsConfigured) {
+        toast.error("AI key not set", {
+          id: tid,
+          description: "OPENAI_API_KEY is not configured on the server, so indexing can’t run.",
+        });
+        return;
+      }
+      const { counts, estimate, model } = json.plan;
+      if (estimate.sermons === 0) {
+        toast.success("Nothing to index", {
+          id: tid,
+          description: `All ${counts.total} sermons are already up to date.`,
+        });
+        return;
+      }
+      toast.dismiss(tid);
+      const cost = estimate.costUsd < 0.01 ? "<$0.01" : `$${estimate.costUsd.toFixed(2)}`;
+      const proceed = window.confirm(
+        "Index new/changed sermons only\n\n" +
+          `New sermons: ${counts.new}\n` +
+          `Changed sermons: ${counts.changed}\n` +
+          `Up to date (skipped): ${counts.upToDate}\n` +
+          `No text (skipped): ${counts.empty}\n\n` +
+          `Estimated OpenAI requests: ${estimate.requests}\n` +
+          `Estimated tokens: ${estimate.tokens.toLocaleString()}\n` +
+          `Estimated cost: ${cost}  (model: ${model})\n\n` +
+          "These are estimates. Proceed with indexing?",
+      );
+      if (!proceed) {
+        setStatus("Indexing cancelled — nothing was spent.");
+        return;
+      }
+      const tid2 = toast.loading("Indexing new/changed sermons…");
+      const result = await fetchReindexEmbeddingsBatched({
+        onlyChanged: true,
+        onProgress: ({ totalSermons }) => {
+          toast.loading("Indexing new/changed sermons…", {
+            id: tid2,
+            description: `Done so far: ${totalSermons} sermons`,
+          });
+        },
+      });
+      if (!result.ok) {
+        toast.error("Indexing failed", { id: tid2, description: result.error });
+        return;
+      }
+      const errNote =
+        result.errors.length > 0
+          ? " Some sermons had a problem — check with your tech person if search looks wrong."
+          : "";
+      toast.success("Search updated", {
+        id: tid2,
+        description: `Indexed ${result.totalSermons} sermons.${errNote}`,
+      });
+    } catch (e) {
+      toast.error("Indexing failed", {
+        id: tid,
+        description: e instanceof Error ? e.message : "Unknown error",
+      });
+    } finally {
+      setIndexChangedLoading(false);
+    }
+  }
+
   async function onReindexEmbeddings() {
     setReindexLoading(true);
     const tid = toast.loading("Updating search…", { description: "This may take a few minutes." });
@@ -497,16 +630,39 @@ export default function AdminPage() {
                     onChange={(e) => setFile(e.target.files?.[0] ?? null)}
                   />
                 </div>
-                <Button type="submit" disabled={loading} className="gap-2">
-                  {loading ? (
-                    <>
-                      <Loader2 className="size-4 animate-spin" aria-hidden />
-                      Working…
-                    </>
-                  ) : (
-                    "Upload"
-                  )}
-                </Button>
+                <div className="flex flex-wrap gap-2">
+                  <Button type="submit" disabled={loading || previewLoading} className="gap-2">
+                    {loading ? (
+                      <>
+                        <Loader2 className="size-4 animate-spin" aria-hidden />
+                        Working…
+                      </>
+                    ) : (
+                      "Upload"
+                    )}
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    disabled={loading || previewLoading}
+                    className="gap-2"
+                    onClick={() => void onPreviewFile()}
+                    title="See new / changed / unchanged / duplicate rows without saving anything"
+                  >
+                    {previewLoading ? (
+                      <>
+                        <Loader2 className="size-4 animate-spin" aria-hidden />
+                        Checking…
+                      </>
+                    ) : (
+                      "Preview file (no changes)"
+                    )}
+                  </Button>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Uploading saves the sermons but does <span className="font-medium">not</span> spend anything on AI
+                  search. When you’re ready, use Advanced → “Index new/changed sermons only.”
+                </p>
 
                 {loading && importLive && (
                   <div
@@ -705,9 +861,27 @@ export default function AdminPage() {
               <Button
                 type="button"
                 variant="secondary"
-                disabled={reindexLoading}
+                disabled={reindexLoading || indexChangedLoading}
+                className="gap-2"
+                onClick={() => void onIndexChangedOnly()}
+                title="Show a cost preview, then embed only new or changed sermons"
+              >
+                {indexChangedLoading ? (
+                  <>
+                    <Loader2 className="size-4 animate-spin" aria-hidden />
+                    Working…
+                  </>
+                ) : (
+                  "Index new/changed sermons only"
+                )}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={reindexLoading || indexChangedLoading}
                 className="gap-2"
                 onClick={() => void onReindexEmbeddings()}
+                title="Re-embeds EVERY sermon (slower and more costly) — usually you only need new/changed"
               >
                 {reindexLoading ? (
                   <>
@@ -715,7 +889,7 @@ export default function AdminPage() {
                     Working…
                   </>
                 ) : (
-                  "Refresh search for all sermons"
+                  "Refresh search for ALL sermons"
                 )}
               </Button>
             </CardContent>

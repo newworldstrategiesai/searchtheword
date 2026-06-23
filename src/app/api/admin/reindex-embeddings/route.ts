@@ -1,6 +1,8 @@
+import { buildIndexPlan, type SermonIndexStatusRow } from "@/lib/embeddings/index-plan";
 import { indexSermonChunks } from "@/lib/embeddings/index-sermon";
 import { embeddingsConfigured } from "@/lib/embeddings/openai-embed";
 import { getAdminSupabase } from "@/lib/require-admin";
+import type { SupabaseClient } from "@supabase/supabase-js";
 import { NextResponse } from "next/server";
 
 export const dynamic = "force-dynamic";
@@ -26,7 +28,68 @@ function parseTake(value: unknown): number | null {
   return Math.min(500, Math.max(1, Math.floor(n)));
 }
 
-type ReindexBody = { skip?: unknown; take?: unknown };
+type ReindexBody = { skip?: unknown; take?: unknown; onlyChanged?: unknown };
+
+/**
+ * Targeted reindex: only sermons that are new (no chunks) or changed (edited
+ * since last indexed). Pages over a stable id list from admin_sermon_index_status
+ * so repeated batched requests don't re-embed up-to-date sermons.
+ */
+async function reindexChangedOnly(
+  supabase: SupabaseClient,
+  skipInitial: number,
+  takeLimit: number,
+): Promise<Response> {
+  const { data, error } = await supabase.rpc("admin_sermon_index_status");
+  if (error) {
+    const hint = /function .* does not exist|could not find/i.test(error.message)
+      ? " Run database migration 006_sermon_index_status.sql, then try again."
+      : "";
+    return NextResponse.json({ error: `${error.message}.${hint}` }, { status: 500 });
+  }
+
+  const plan = buildIndexPlan((data ?? []) as SermonIndexStatusRow[]);
+  const ids = plan.changedOrNewIds;
+  const batchIds = ids.slice(skipInitial, skipInitial + takeLimit);
+
+  let processed = 0;
+  let chunkTotal = 0;
+  const errors: string[] = [];
+
+  if (batchIds.length > 0) {
+    const { data: rows, error: rowErr } = await supabase
+      .from("sermons")
+      .select("id, title, full_text, summary")
+      .in("id", batchIds);
+    if (rowErr) {
+      return NextResponse.json({ error: rowErr.message }, { status: 500 });
+    }
+    for (const row of rows ?? []) {
+      const r = await indexSermonChunks(supabase, {
+        id: row.id as string,
+        title: String(row.title ?? ""),
+        full_text: (row.full_text as string | null) ?? null,
+        summary: (row.summary as string | null) ?? null,
+      });
+      processed += 1;
+      if (r.ok) chunkTotal += r.chunks;
+      else if (r.error) errors.push(`${row.id}: ${r.error}`);
+    }
+  }
+
+  const nextSkip = skipInitial + batchIds.length;
+  const partial = nextSkip < ids.length;
+  return NextResponse.json({
+    ok: true,
+    done: !partial,
+    partial,
+    nextSkip: partial ? nextSkip : null,
+    sermonsProcessed: processed,
+    chunksWritten: chunkTotal,
+    totalTargets: ids.length,
+    errors,
+  });
+}
 
 /**
  * Admin-only: rebuild embedding chunks for all sermons (sequential to respect OpenAI rate limits).
@@ -55,8 +118,14 @@ export async function POST(request: Request) {
 
   const skipInitial = parseSkip(body.skip);
   const takeLimit = parseTake(body.take) ?? NO_BATCH_LIMIT;
+  const onlyChanged = body.onlyChanged === true;
 
   const { supabase } = auth;
+
+  if (onlyChanged) {
+    return reindexChangedOnly(supabase, skipInitial, takeLimit);
+  }
+
   let dbOffset = 0;
   /** Index of each row in `updated_at desc` ordering (resets each request; skip fast-forwards). */
   let ordinal = 0;

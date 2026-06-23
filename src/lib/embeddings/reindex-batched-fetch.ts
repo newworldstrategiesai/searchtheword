@@ -34,6 +34,8 @@ type ReindexApiJson = {
 
 export async function fetchReindexEmbeddingsBatched(options?: {
   takePerRequest?: number;
+  /** When true, only re-embed new or changed sermons (skips up-to-date ones). */
+  onlyChanged?: boolean;
   onProgress?: (p: {
     batchIndex: number;
     totalSermons: number;
@@ -41,6 +43,7 @@ export async function fetchReindexEmbeddingsBatched(options?: {
   }) => void;
 }): Promise<ReindexBatchedResult> {
   const take = options?.takePerRequest ?? REINDEX_BATCH_SIZE;
+  const onlyChanged = options?.onlyChanged === true;
   const onProgress = options?.onProgress;
 
   let skip = 0;
@@ -54,7 +57,7 @@ export async function fetchReindexEmbeddingsBatched(options?: {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       credentials: "same-origin",
-      body: JSON.stringify({ skip, take }),
+      body: JSON.stringify({ skip, take, onlyChanged }),
     });
 
     const json = (await res.json()) as ReindexApiJson;

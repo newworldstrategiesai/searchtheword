@@ -1,5 +1,10 @@
 import type { IngestProgressEvent, IngestResult } from "@/lib/ingest/process";
-import { ingestFromCsvString, ingestFromXlsxBuffer } from "@/lib/ingest/process";
+import {
+  ingestFromCsvString,
+  ingestFromXlsxBuffer,
+  parseUploadRows,
+  previewIngestRows,
+} from "@/lib/ingest/process";
 import { getAdminSupabase } from "@/lib/require-admin";
 import { createAdminSupabaseClient } from "@/lib/supabase/admin";
 import { NextResponse } from "next/server";
@@ -28,6 +33,23 @@ export async function POST(request: Request) {
 
   const name = file.name.toLowerCase();
   const isXlsx = name.endsWith(".xlsx") || name.endsWith(".xls");
+
+  /**
+   * Preview mode (`preview=1`): parse the file and report what an import WOULD do
+   * (new / changed / unchanged / duplicate rows) without writing anything. Lets the
+   * admin review before committing — and never triggers any embedding/OpenAI work.
+   */
+  if (form.get("preview")) {
+    try {
+      const buffer = await file.arrayBuffer();
+      const rows = parseUploadRows({ buffer, isXlsx });
+      const preview = await previewIngestRows(supabase, rows);
+      return NextResponse.json({ ok: true, preview });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Preview failed";
+      return NextResponse.json({ error: message }, { status: 400 });
+    }
+  }
 
   const stream = new ReadableStream<Uint8Array>({
     async start(controller) {

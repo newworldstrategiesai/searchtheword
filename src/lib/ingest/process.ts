@@ -338,6 +338,49 @@ function rowExternalId(row: Record<string, string>): string | null {
   return raw.trim() || null;
 }
 
+/**
+ * Build the `sermons` row payload from a spreadsheet row. Single source of truth
+ * for both real ingest (insert/update) and dry-run preview (change detection),
+ * so the preview's "changed vs unchanged" matches what an actual import writes.
+ */
+export function buildSermonPayload(row: Record<string, string>): Record<string, unknown> {
+  const externalId = rowExternalId(row);
+  const rawDrive = row.google_drive_link?.trim() || "";
+  const rawMedia = row.media_url?.trim() || "";
+  const driveUrl =
+    (rawDrive && looksLikeHttpUrl(rawDrive) ? rawDrive : null) ||
+    (rawMedia && looksLikeHttpUrl(rawMedia) ? rawMedia : null);
+  const primaryRaw = row.primary_scripture?.trim() || null;
+  const secondaryRaw = row.secondary_scriptures?.trim() || null;
+  const scriptureRef = normalizeScriptureRef(primaryRaw || row.scripture_reference) || null;
+  const partNum = row.part_number?.trim() ? Number.parseInt(row.part_number, 10) : null;
+
+  const payload: Record<string, unknown> = {
+    title: rowTitle(row),
+    preacher: rowPreacher(row),
+    date: rowDate(row),
+    scripture_ref: scriptureRef,
+    summary: row.summary?.trim() || null,
+    full_text: row.full_text?.trim() || null,
+    media_url: driveUrl,
+    series: row.series?.trim() || null,
+    part_number: Number.isFinite(partNum!) ? partNum : null,
+    document_type: row.document_type?.trim() || null,
+    primary_scripture_raw: primaryRaw,
+    secondary_scriptures_raw: secondaryRaw,
+    google_drive_url: rawDrive && looksLikeHttpUrl(rawDrive) ? rawDrive : null,
+    folder: row.folder?.trim() || null,
+    core_doctrine: row.core_doctrine?.trim() || null,
+    doctrinal_position: row.doctrinal_position?.trim() || null,
+    key_claims: row.key_claims?.trim() || null,
+    audience: row.audience?.trim() || null,
+    metadata_confidence: row.metadata_confidence?.trim() || null,
+    ai_training_approved: row.ai_training_approved?.trim() || null,
+  };
+  if (externalId) payload.external_id = externalId;
+  return payload;
+}
+
 type SermonMatchRow = { id: string; external_id: string | null; created_at: string | null };
 
 function pickBestSermonMatch(rows: SermonMatchRow[], preferredExternalId: string | null): string | null {
@@ -454,32 +497,8 @@ export async function ingestRows(
     const date = rowDate(row);
     const primaryRaw = row.primary_scripture?.trim() || null;
     const secondaryRaw = row.secondary_scriptures?.trim() || null;
-    const scriptureRef = normalizeScriptureRef(primaryRaw || row.scripture_reference) || null;
 
-    const partNum = row.part_number?.trim() ? Number.parseInt(row.part_number, 10) : null;
-    const payload: Record<string, unknown> = {
-      title,
-      preacher,
-      date,
-      scripture_ref: scriptureRef,
-      summary: row.summary?.trim() || null,
-      full_text: row.full_text?.trim() || null,
-      media_url: driveUrl,
-      series: row.series?.trim() || null,
-      part_number: Number.isFinite(partNum!) ? partNum : null,
-      document_type: row.document_type?.trim() || null,
-      primary_scripture_raw: primaryRaw,
-      secondary_scriptures_raw: secondaryRaw,
-      google_drive_url: rawDrive && looksLikeHttpUrl(rawDrive) ? rawDrive : null,
-      folder: row.folder?.trim() || null,
-      core_doctrine: row.core_doctrine?.trim() || null,
-      doctrinal_position: row.doctrinal_position?.trim() || null,
-      key_claims: row.key_claims?.trim() || null,
-      audience: row.audience?.trim() || null,
-      metadata_confidence: row.metadata_confidence?.trim() || null,
-      ai_training_approved: row.ai_training_approved?.trim() || null,
-    };
-    if (externalId) payload.external_id = externalId;
+    const payload = buildSermonPayload(row);
 
     onProgress?.({
       kind: "row",
@@ -600,4 +619,148 @@ export async function ingestFromXlsxBuffer(
   const rows = parseXlsxBuffer(buffer);
   options?.onProgress?.({ kind: "parsed", rowCount: rows.length, fileKind: "xlsx" });
   return ingestRows(supabase, rows, options);
+}
+
+/** Dry-run summary of what an import would do — no writes. */
+export type IngestPreview = {
+  totalRows: number;
+  newRows: number;
+  changedRows: number;
+  unchangedRows: number;
+  duplicateRows: number;
+  errors: string[];
+};
+
+/** Stored fields compared to decide whether an existing sermon would actually change. */
+const PREVIEW_COMPARE_FIELDS = [
+  "title",
+  "preacher",
+  "date",
+  "scripture_ref",
+  "summary",
+  "full_text",
+  "media_url",
+  "series",
+  "part_number",
+  "document_type",
+  "primary_scripture_raw",
+  "secondary_scriptures_raw",
+  "google_drive_url",
+  "folder",
+  "core_doctrine",
+  "doctrinal_position",
+  "key_claims",
+  "audience",
+  "metadata_confidence",
+  "ai_training_approved",
+] as const;
+
+function normalizeCompareValue(v: unknown): string {
+  if (v == null) return "";
+  if (typeof v === "number") return String(v);
+  return String(v).trim();
+}
+
+function payloadMatchesExisting(
+  existing: Record<string, unknown>,
+  payload: Record<string, unknown>,
+): boolean {
+  for (const f of PREVIEW_COMPARE_FIELDS) {
+    if (normalizeCompareValue(existing[f]) !== normalizeCompareValue(payload[f])) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/**
+ * Classify each spreadsheet row as new / changed / unchanged / duplicate WITHOUT
+ * writing anything. Powers the pre-import preview so admins see the effect first.
+ * "duplicate" = a row whose identity (stable id, or title+speaker+date) was already
+ * seen earlier in the same file or resolves to an already-matched existing sermon.
+ */
+export async function previewIngestRows(
+  supabase: SupabaseClient,
+  rows: Record<string, string>[],
+): Promise<IngestPreview> {
+  const errors: string[] = [];
+  let newRows = 0;
+  let changedRows = 0;
+  let unchangedRows = 0;
+  let duplicateRows = 0;
+
+  const seenFileKeys = new Set<string>();
+  const seenExistingIds = new Set<string>();
+
+  for (let i = 0; i < rows.length; i++) {
+    const row = rows[i]!;
+    const title = rowTitle(row);
+    const preacher = rowPreacher(row);
+    const rowLabel = `Row ${i + 2}`;
+
+    if (!title || !preacher) {
+      errors.push(`${rowLabel}: missing title or speaker/preacher`);
+      continue;
+    }
+
+    const externalId = rowExternalId(row);
+    const rawDrive = row.google_drive_link?.trim() || "";
+    const rawMedia = row.media_url?.trim() || "";
+    const driveUrl =
+      (rawDrive && looksLikeHttpUrl(rawDrive) ? rawDrive : null) ||
+      (rawMedia && looksLikeHttpUrl(rawMedia) ? rawMedia : null);
+    const date = rowDate(row);
+
+    const fileKey = externalId
+      ? `ext:${externalId}`
+      : `tpd:${title} ${preacher} ${date ?? ""}`;
+    if (seenFileKeys.has(fileKey)) {
+      duplicateRows += 1;
+      continue;
+    }
+    seenFileKeys.add(fileKey);
+
+    const existingId = await findExistingSermonForIngest(supabase, {
+      externalId,
+      title,
+      preacher,
+      date,
+      driveUrl,
+    });
+
+    if (!existingId) {
+      newRows += 1;
+      continue;
+    }
+
+    if (seenExistingIds.has(existingId)) {
+      duplicateRows += 1;
+      continue;
+    }
+    seenExistingIds.add(existingId);
+
+    const payload = buildSermonPayload(row);
+    const { data: existing } = await supabase
+      .from("sermons")
+      .select(PREVIEW_COMPARE_FIELDS.join(","))
+      .eq("id", existingId)
+      .maybeSingle();
+
+    if (existing && payloadMatchesExisting(existing as unknown as Record<string, unknown>, payload)) {
+      unchangedRows += 1;
+    } else {
+      changedRows += 1;
+    }
+  }
+
+  return { totalRows: rows.length, newRows, changedRows, unchangedRows, duplicateRows, errors };
+}
+
+export function parseUploadRows(input: {
+  buffer: ArrayBuffer | Buffer;
+  isXlsx: boolean;
+}): Record<string, string>[] {
+  return input.isXlsx
+    ? parseXlsxBuffer(input.buffer)
+    : parseCsvContent(new TextDecoder().decode(input.buffer as ArrayBuffer));
 }
