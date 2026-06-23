@@ -1,8 +1,13 @@
 import { vectorToPgLiteral } from "@/lib/embeddings/hybrid-search";
 import { embedQuery, embeddingsConfigured } from "@/lib/embeddings/openai-embed";
+import { chatWithFallback } from "@/lib/openai/chat";
+import { getSessionUser } from "@/lib/require-user";
 import { searchSermonsServer } from "@/lib/sermons";
 import { createPublicSupabaseClient } from "@/lib/supabase/server";
 import { NextResponse } from "next/server";
+
+/** Per-account questions allowed per day. Override with ASK_DAILY_LIMIT. */
+const DEFAULT_ASK_DAILY_LIMIT = 50;
 
 export const dynamic = "force-dynamic";
 
@@ -63,7 +68,10 @@ function openAiFailureReply(status: number, errBody: string): string {
     );
   }
   if (status === 429 || message.includes("rate limit")) {
-    return "The AI service is busy right now. Wait a minute and try again, or use Search to browse sermons.";
+    return (
+      "The AI assistant has reached today's usage limit. It will reset automatically. " +
+      "In the meantime, Search still works for browsing sermons."
+    );
   }
   if (status === 401) {
     return "The AI assistant is misconfigured (API key). Search still works; ask your site admin to fix the server API key.";
@@ -137,6 +145,10 @@ async function buildArchiveRecordContext(question: string) {
 }
 
 export async function POST(request: Request) {
+  // Account holders only — closes the public OpenAI-spend hole.
+  const auth = await getSessionUser();
+  if (!auth.ok) return auth.response;
+
   let body: unknown;
   try {
     body = await request.json();
@@ -154,6 +166,35 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Last user message required" }, { status: 400 });
   }
 
+  // Per-account daily cap (only counts real questions). Degrades open on counter
+  // errors (e.g. migration not yet applied) — the login gate is the primary control.
+  const dailyLimit = Number(process.env.ASK_DAILY_LIMIT) || DEFAULT_ASK_DAILY_LIMIT;
+  try {
+    const { data, error } = await auth.supabase.rpc("record_ask_question", {
+      daily_limit: dailyLimit,
+    });
+    if (error) {
+      console.error("Ask rate-limit RPC error (allowing through):", error.message);
+    } else {
+      const row = (Array.isArray(data) ? data[0] : data) as
+        | { allowed?: boolean; used?: number; day_limit?: number }
+        | null;
+      if (row && row.allowed === false) {
+        const lim = row.day_limit ?? dailyLimit;
+        return NextResponse.json(
+          {
+            reply: `You’ve reached today’s limit of ${lim} questions. It resets tomorrow — meanwhile you can still use Search to browse the archive.`,
+            citations: [] as AskCitation[],
+            code: "rate_limited",
+          },
+          { status: 429 },
+        );
+      }
+    }
+  } catch (e) {
+    console.error("Ask rate-limit error (allowing through):", e);
+  }
+
   const key = process.env.OPENAI_API_KEY?.trim();
   if (!key) {
     return NextResponse.json({
@@ -162,8 +203,6 @@ export async function POST(request: Request) {
       citations: [] as AskCitation[],
     });
   }
-
-  const model = process.env.OPENAI_MODEL?.trim() || "gpt-4o-mini";
 
   let ragSection = "";
   let citations: AskCitation[] = [];
@@ -228,36 +267,24 @@ export async function POST(request: Request) {
 
   const systemContent = SYSTEM_BASE + ragSection;
 
-  const res = await fetch("https://api.openai.com/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${key}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model,
-      messages: [{ role: "system", content: systemContent }, ...messages],
-      max_tokens: 900,
-      temperature: 0.1,
-    }),
+  const result = await chatWithFallback(key, {
+    messages: [{ role: "system", content: systemContent }, ...messages],
+    max_tokens: 900,
+    temperature: 0.1,
   });
 
-  if (!res.ok) {
-    const errText = await res.text();
-    console.error("Ask API chat error:", res.status, errText);
+  if (!result.ok) {
+    console.error("Ask API chat error:", result.status, result.model, result.errText);
     /** Do not return RAG citations — the model did not produce an answer, so sources would be misleading. */
-    const reply = openAiFailureReply(res.status, errText);
+    const reply = openAiFailureReply(result.status, result.errText);
     return NextResponse.json({
       reply,
       citations: [] as AskCitation[],
-      error: errText.slice(0, 400),
+      error: result.errText.slice(0, 400),
     });
   }
 
-  const data = (await res.json()) as {
-    choices?: { message?: { content?: string } }[];
-  };
-  const rawReply = data.choices?.[0]?.message?.content?.trim() || "No response.";
+  const rawReply = result.data.choices?.[0]?.message?.content?.trim() || "No response.";
   const reply =
     rawReply.startsWith("According to Pastor Vaughn") ||
     rawReply.startsWith("I don't have enough")

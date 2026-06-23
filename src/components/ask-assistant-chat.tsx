@@ -19,7 +19,12 @@ export type AskCitation = {
   excerpt: string;
 };
 
-type Msg = { role: "user" | "assistant"; content: string; citations?: AskCitation[] };
+type Msg = {
+  role: "user" | "assistant";
+  content: string;
+  citations?: AskCitation[];
+  cta?: { href: string; label: string };
+};
 
 export const ASK_ASSISTANT_INTRO =
   "Hi — I’m your sermon assistant. I only answer from Pastor Vaughn’s indexed teachings and cite the sermon excerpts I used. For exact keyword or scripture lookup, use Search in the header.";
@@ -56,13 +61,39 @@ export function AskAssistantChat({ variant, className }: AskAssistantChatProps) 
       const res = await fetch("/api/ask", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
+        credentials: "same-origin",
         body: JSON.stringify({ messages: history }),
       });
       const json = (await res.json()) as {
         reply?: string;
         error?: string;
+        code?: string;
         citations?: AskCitation[];
       };
+
+      // Not signed in: show the message plus a login link instead of a citation row.
+      if (res.status === 401 || json.code === "auth_required") {
+        toast.error("Sign in required", { description: "The assistant is for account holders." });
+        setMessages((m) => [
+          ...m,
+          {
+            role: "assistant",
+            content: json.reply ?? "Please sign in to use the assistant.",
+            cta: { href: "/login?redirect=/ask", label: "Sign in" },
+          },
+        ]);
+        return;
+      }
+
+      if (res.status === 429 || json.code === "rate_limited") {
+        toast.error("Daily limit reached", { description: "Try again tomorrow." });
+        setMessages((m) => [
+          ...m,
+          { role: "assistant", content: json.reply ?? "You’ve reached today’s question limit." },
+        ]);
+        return;
+      }
+
       const reply =
         json.reply ?? (json.error ? `Something went wrong: ${json.error}` : "No reply.");
       if (json.error && !json.reply) {
@@ -182,6 +213,14 @@ export function AskAssistantChat({ variant, className }: AskAssistantChatProps) 
                       </Link>
                     ))}
                   </div>
+                )}
+                {m.role === "assistant" && m.cta && (
+                  <Link
+                    href={m.cta.href}
+                    className="inline-flex w-fit items-center gap-1 rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90"
+                  >
+                    {m.cta.label}
+                  </Link>
                 )}
                 {m.role === "assistant" && m.citations && m.citations.length > 0 && (
                   <div className="rounded-xl border border-border/80 bg-background/80 px-2.5 py-2 text-xs dark:bg-background/40 sm:px-3">
