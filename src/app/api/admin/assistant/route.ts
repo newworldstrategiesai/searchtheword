@@ -1,4 +1,5 @@
 import { getAdminSupabase } from "@/lib/require-admin";
+import { chatWithFallback } from "@/lib/openai/chat";
 import { ADMIN_ASSISTANT_SYSTEM_PROMPT } from "@/lib/admin-assistant/system-prompt";
 import {
   executeTool,
@@ -14,7 +15,7 @@ export const runtime = "nodejs";
 
 type ChatMessage = {
   role: "user" | "assistant" | "system" | "tool";
-  content: string;
+  content: string | null;
   tool_call_id?: string;
   tool_calls?: {
     id: string;
@@ -57,7 +58,6 @@ export async function POST(request: Request) {
     });
   }
 
-  const model = process.env.OPENAI_MODEL?.trim() || "gpt-4o-mini";
   const { supabase } = auth;
 
   const messages: ChatMessage[] = [
@@ -68,39 +68,24 @@ export async function POST(request: Request) {
   const allToolResults: ToolResult[] = [];
 
   for (let round = 0; round < MAX_TOOL_ROUNDS; round++) {
-    const res = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${key}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model,
-        messages,
-        tools: TOOL_DEFINITIONS,
-        tool_choice: "auto",
-        max_tokens: 1200,
-        temperature: 0.2,
-      }),
+    const result = await chatWithFallback(key, {
+      messages,
+      tools: TOOL_DEFINITIONS,
+      tool_choice: "auto",
+      max_tokens: 1200,
+      temperature: 0.2,
     });
 
-    if (!res.ok) {
-      const errText = await res.text();
-      console.error("Admin assistant API error:", res.status, errText);
-      return NextResponse.json({
-        reply: "Could not reach the AI service right now. Try again in a moment.",
-        tool_results: allToolResults,
-      });
+    if (!result.ok) {
+      console.error("Admin assistant API error:", result.status, result.model, result.errText);
+      const reply =
+        result.status === 429
+          ? "The AI assistant has reached today's usage limit. It will reset automatically — try again later."
+          : "Could not reach the AI service right now. Try again in a moment.";
+      return NextResponse.json({ reply, tool_results: allToolResults });
     }
 
-    const data = (await res.json()) as {
-      choices?: {
-        message?: ChatMessage;
-        finish_reason?: string;
-      }[];
-    };
-
-    const choice = data.choices?.[0];
+    const choice = result.data.choices?.[0];
     if (!choice?.message) {
       return NextResponse.json({
         reply: "No response from the AI service.",
