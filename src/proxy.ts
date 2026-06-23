@@ -2,6 +2,39 @@ import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import { isSupabaseConfigured } from "@/lib/supabase/env";
 
+/**
+ * Max time to wait on Supabase auth before treating the session as unverifiable.
+ * When Supabase is unreachable, `getUser()` otherwise hangs ~19s and then throws
+ * (the auth client receives an HTML 5xx page and fails to JSON.parse it), which
+ * crashes the middleware for every protected route. Fail closed, but fast.
+ */
+const AUTH_TIMEOUT_MS = 4000;
+
+type SessionCheck = { user: { app_metadata?: { role?: string } } | null; degraded: boolean };
+
+/**
+ * Resolve the current user, but never hang or throw: on timeout or any error
+ * (e.g. Supabase outage), return `degraded: true` so callers fail closed.
+ */
+async function getUserSafely(
+  supabase: ReturnType<typeof createServerClient>,
+): Promise<SessionCheck> {
+  try {
+    const result = await Promise.race([
+      supabase.auth.getUser(),
+      new Promise<"timeout">((resolve) =>
+        setTimeout(() => resolve("timeout"), AUTH_TIMEOUT_MS),
+      ),
+    ]);
+    if (result === "timeout") {
+      return { user: null, degraded: true };
+    }
+    return { user: result.data?.user ?? null, degraded: false };
+  } catch {
+    return { user: null, degraded: true };
+  }
+}
+
 export async function proxy(request: NextRequest) {
   const isAdminPage = request.nextUrl.pathname.startsWith("/admin");
   const isAdminApi = request.nextUrl.pathname.startsWith("/api/admin");
@@ -54,9 +87,25 @@ export async function proxy(request: NextRequest) {
     },
   });
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const { user, degraded } = await getUserSafely(supabase);
+
+  /**
+   * Auth backend unreachable: don't grant access (fail closed) but signal a
+   * transient condition rather than an auth failure. APIs get 503 so callers
+   * can retry; pages bounce to /login as before.
+   */
+  if (degraded) {
+    if (isAdminApi || isIngestApi) {
+      return NextResponse.json(
+        { error: "Authentication service temporarily unavailable. Please try again shortly." },
+        { status: 503 },
+      );
+    }
+    const redirectUrl = request.nextUrl.clone();
+    redirectUrl.pathname = "/login";
+    redirectUrl.searchParams.set("redirect", request.nextUrl.pathname);
+    return NextResponse.redirect(redirectUrl);
+  }
 
   if (isAdminPage || isAdminApi || isIngestApi) {
     if (!user || user.app_metadata?.role !== "admin") {
