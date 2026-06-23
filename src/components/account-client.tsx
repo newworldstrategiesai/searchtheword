@@ -149,6 +149,7 @@ function AdminUsersSection() {
   const [password, setPassword] = useState("");
   const [grantAdmin, setGrantAdmin] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [mode, setMode] = useState<"invite" | "create">("invite");
 
   const loadUsers = useCallback(async () => {
     setLoadError(null);
@@ -180,16 +181,29 @@ function AdminUsersSection() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           email: email.trim().toLowerCase(),
-          password,
+          mode,
+          password: mode === "create" ? password : undefined,
           role: grantAdmin ? "admin" : undefined,
         }),
       });
-      const data = (await res.json()) as { error?: string; user?: { email?: string } };
+      const data = (await res.json()) as {
+        error?: string;
+        invited?: boolean;
+        user?: { email?: string };
+      };
       if (!res.ok) {
-        toast.error("Could not create user", { description: data.error });
+        toast.error(mode === "invite" ? "Could not send invite" : "Could not create user", {
+          description: data.error,
+        });
         return;
       }
-      toast.success("User created", { description: data.user?.email ?? email });
+      if (data.invited) {
+        toast.success("Invitation sent", {
+          description: `${data.user?.email ?? email} will get an email to set their password.`,
+        });
+      } else {
+        toast.success("User created", { description: data.user?.email ?? email });
+      }
       setEmail("");
       setPassword("");
       setGrantAdmin(false);
@@ -211,11 +225,41 @@ function AdminUsersSection() {
           Users
         </CardTitle>
         <CardDescription>
-          Create sign-ins for your team. New admins get access to Admin and ingest tools.
+          Invite people by email (they set their own password), or create a sign-in with a
+          temporary password. New admins get access to Admin and ingest tools.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
         <form onSubmit={(e) => void createUser(e)} className="space-y-4">
+          <div className="inline-flex rounded-lg border border-border p-0.5 text-sm">
+            <button
+              type="button"
+              onClick={() => setMode("invite")}
+              disabled={creating}
+              className={cn(
+                "rounded-md px-3 py-1.5 font-medium transition-colors",
+                mode === "invite"
+                  ? "bg-primary text-primary-foreground"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              Invite by email
+            </button>
+            <button
+              type="button"
+              onClick={() => setMode("create")}
+              disabled={creating}
+              className={cn(
+                "rounded-md px-3 py-1.5 font-medium transition-colors",
+                mode === "create"
+                  ? "bg-primary text-primary-foreground"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              Temporary password
+            </button>
+          </div>
+
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-2 sm:col-span-2">
               <Label htmlFor="invite-email">Email</Label>
@@ -229,21 +273,29 @@ function AdminUsersSection() {
                 disabled={creating}
               />
             </div>
-            <div className="space-y-2 sm:col-span-2">
-              <Label htmlFor="invite-password">Temporary password</Label>
-              <Input
-                id="invite-password"
-                type="password"
-                autoComplete="new-password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-                minLength={8}
-                disabled={creating}
-              />
-              <p className="text-xs text-muted-foreground">Minimum 8 characters. Ask them to change it after first sign-in.</p>
-            </div>
+            {mode === "create" && (
+              <div className="space-y-2 sm:col-span-2">
+                <Label htmlFor="invite-password">Temporary password</Label>
+                <Input
+                  id="invite-password"
+                  type="password"
+                  autoComplete="new-password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                  minLength={8}
+                  disabled={creating}
+                />
+                <p className="text-xs text-muted-foreground">Minimum 8 characters. Ask them to change it after first sign-in.</p>
+              </div>
+            )}
           </div>
+          {mode === "invite" && (
+            <p className="text-xs text-muted-foreground">
+              We’ll email a secure link so they can set their own password. (Requires email/SMTP set
+              up in Supabase.)
+            </p>
+          )}
           <label className="flex cursor-pointer items-center gap-2 text-sm">
             <input
               type="checkbox"
@@ -258,8 +310,10 @@ function AdminUsersSection() {
             {creating ? (
               <>
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Creating…
+                {mode === "invite" ? "Sending…" : "Creating…"}
               </>
+            ) : mode === "invite" ? (
+              "Send invite"
             ) : (
               "Create user"
             )}

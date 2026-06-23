@@ -44,6 +44,8 @@ type CreateUserBody = {
   email?: string;
   password?: string;
   role?: string;
+  /** "invite" emails a set-password link; "create" sets a temporary password now. */
+  mode?: "invite" | "create";
 };
 
 export async function POST(request: Request) {
@@ -62,11 +64,12 @@ export async function POST(request: Request) {
     .toLowerCase();
   const password = String(body.password ?? "");
   const asAdmin = body.role === "admin";
+  const mode = body.mode === "invite" ? "invite" : "create";
 
   if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     return NextResponse.json({ error: "A valid email is required." }, { status: 400 });
   }
-  if (password.length < 8) {
+  if (mode === "create" && password.length < 8) {
     return NextResponse.json({ error: "Password must be at least 8 characters." }, { status: 400 });
   }
 
@@ -75,6 +78,35 @@ export async function POST(request: Request) {
     adminClient = createAdminSupabaseClient();
   } catch {
     return serviceUnavailable();
+  }
+
+  if (mode === "invite") {
+    const origin = process.env.NEXT_PUBLIC_SITE_URL?.trim() || new URL(request.url).origin;
+    const redirectTo = `${origin.replace(/\/+$/, "")}/auth/accept`;
+
+    const { data, error } = await adminClient.auth.admin.inviteUserByEmail(email, { redirectTo });
+    if (error) {
+      return NextResponse.json({ error: error.message }, { status: 400 });
+    }
+
+    // inviteUserByEmail can't set app_metadata; grant the role in a follow-up call.
+    if (asAdmin && data.user) {
+      const { error: roleErr } = await adminClient.auth.admin.updateUserById(data.user.id, {
+        app_metadata: { role: "admin" },
+      });
+      if (roleErr) {
+        console.error("Invite succeeded but granting admin failed:", roleErr.message);
+      }
+    }
+
+    return NextResponse.json({
+      invited: true,
+      user: {
+        id: data.user?.id,
+        email: data.user?.email,
+        role: asAdmin ? "admin" : null,
+      },
+    });
   }
 
   const { data, error } = await adminClient.auth.admin.createUser({
