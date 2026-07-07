@@ -5,7 +5,7 @@ import Link from "next/link";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { createClient } from "@/lib/supabase/client";
-import type { IngestProgressEvent } from "@/lib/ingest/process";
+import type { IngestProgressEvent, IngestResult } from "@/lib/ingest/process";
 import { consumeIngestNdjsonStream } from "@/lib/ingest-client";
 import { fetchReindexEmbeddingsBatched } from "@/lib/embeddings/reindex-batched-fetch";
 import { Button } from "@/components/ui/button";
@@ -174,56 +174,124 @@ export default function AdminPage() {
     }
     setLoading(true);
     setStatus(null);
-    setImportLive({ headline: "Sending file…", detail: file.name });
-    const form = new FormData();
-    form.append("file", file);
+    setImportLive({ headline: "Reading file…", detail: file.name });
 
-    const tid = toast.loading("Uploading…", { description: file.name });
+    const tid = toast.loading("Reading file…", { description: file.name });
 
     try {
-      const res = await fetch("/api/ingest", {
+      // ── Step 1: parse the spreadsheet server-side (no DB writes, fast) ──────
+      const parseForm = new FormData();
+      parseForm.append("file", file);
+      const parseRes = await fetch("/api/ingest/parse", {
         method: "POST",
-        body: form,
+        body: parseForm,
         credentials: "same-origin",
       });
-
-      if (!res.ok) {
-        const json = (await res.json().catch(() => ({}))) as { error?: string };
-        const msg = json.error ?? `Upload failed (${res.status})`;
-        toast.error("Upload didn’t work", { id: tid, description: msg });
+      if (!parseRes.ok) {
+        const json = (await parseRes.json().catch(() => ({}))) as { error?: string };
+        const msg = json.error ?? `Could not read file (${parseRes.status})`;
+        toast.error("Upload didn't work", { id: tid, description: msg });
         setStatus(msg);
         return;
       }
+      const { rows } = (await parseRes.json()) as { rows: Record<string, string>[] };
+      const totalRows = rows.length;
 
-      if (!res.body) {
-        toast.error("Upload didn’t work", { id: tid, description: "No answer from the server." });
-        setStatus("No answer from the server.");
-        return;
+      toast.loading("Uploading…", {
+        id: tid,
+        description: `Saving ${totalRows} row${totalRows === 1 ? "" : "s"} in batches…`,
+      });
+      setImportLive({ headline: `Saving ${totalRows} rows…`, totalRows, currentRow: 0 });
+
+      // ── Step 2: send rows in small batches (50 rows each) ───────────────────
+      // Each batch is a short-lived request that can't time out, no matter how
+      // large the spreadsheet.
+      const BATCH_SIZE = 50;
+      const totals: IngestResult = { inserted: 0, updated: 0, errors: [] };
+
+      for (let start = 0; start < totalRows; start += BATCH_SIZE) {
+        const batchRows = rows.slice(start, start + BATCH_SIZE);
+
+        const batchRes = await fetch("/api/ingest/batch", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "same-origin",
+          body: JSON.stringify({ rows: batchRows, batchStart: start + 1, totalRows }),
+        });
+
+        if (!batchRes.ok) {
+          const json = (await batchRes.json().catch(() => ({}))) as { error?: string };
+          const msg = json.error ?? `Batch failed (${batchRes.status})`;
+          toast.error("Upload didn't work", { id: tid, description: msg });
+          setStatus(msg);
+          return;
+        }
+
+        if (!batchRes.body) {
+          toast.error("Upload didn't work", { id: tid, description: "No answer from server." });
+          setStatus("No answer from server.");
+          return;
+        }
+
+        const batchResult = await consumeIngestNdjsonStream(batchRes.body, (event) => {
+          setImportLive((prev) => mergeImportLive(prev, event));
+          maybeToastImportProgress(tid, event);
+        });
+
+        totals.inserted += batchResult.inserted;
+        totals.updated += batchResult.updated;
+        totals.errors.push(...batchResult.errors);
       }
 
-      const json = await consumeIngestNdjsonStream(res.body, (event) => {
-        setImportLive((prev) => mergeImportLive(prev, event));
-        maybeToastImportProgress(tid, event);
-      });
+      // ── Step 3: Automatically update search index for new/changed sermons ───
+      const ins = totals.inserted;
+      const upd = totals.updated;
 
-      const ins = json.inserted ?? 0;
-      const upd = json.updated ?? 0;
-      const notes = json.errors.length ? `Notes: ${json.errors.join("; ")}` : "";
-      const reindexHint =
-        ins + upd > 0
-          ? " Open Advanced → “Index new/changed sermons only” to add this import to Ask/search (shows a cost preview first)."
-          : "";
+      if (ins + upd > 0) {
+        toast.loading("Updating search index…", {
+          id: tid,
+          description: "Indexing new/changed sermons for Ask/search…",
+        });
+        setImportLive({
+          headline: "Updating search index…",
+          detail: "Generating AI search embeddings for new/changed sermons…",
+        });
+
+        try {
+          const reindexResult = await fetchReindexEmbeddingsBatched({
+            onlyChanged: true,
+            onProgress: ({ totalSermons }) => {
+              toast.loading("Updating search index…", {
+                id: tid,
+                description: `Indexed ${totalSermons} new/changed sermons…`,
+              });
+            },
+          });
+
+          if (!reindexResult.ok) {
+            totals.errors.push(`Search index update failed: ${reindexResult.error}`);
+          } else if (reindexResult.errors.length > 0) {
+            totals.errors.push(...reindexResult.errors);
+          }
+        } catch (reindexErr) {
+          const reindexMsg = reindexErr instanceof Error ? reindexErr.message : "Index update failed";
+          totals.errors.push(`Search index update failed: ${reindexMsg}`);
+        }
+      }
+
+      // ── Step 4: report final result ──────────────────────────────────────────
+      const notes = totals.errors.length ? `Notes: ${totals.errors.join("; ")}` : "";
       toast.success("Done", {
         id: tid,
-        description: `Added ${ins}, updated ${upd}.${notes ? ` ${notes}` : ""}${reindexHint}`,
+        description: `Added ${ins}, updated ${upd}.${notes ? ` ${notes}` : ""}`,
       });
       setStatus(
-        `Added ${ins}, updated ${upd}. ${json.errors.length ? `Notes: ${json.errors.join("; ")}` : ""}${reindexHint}`,
+        `Added ${ins}, updated ${upd}. ${totals.errors.length ? `Notes: ${totals.errors.join("; ")}` : ""}`,
       );
       setFile(null);
     } catch (err) {
       const message = err instanceof Error ? err.message : "Could not complete import.";
-      toast.error("Upload didn’t work", { id: tid, description: message });
+      toast.error("Upload didn't work", { id: tid, description: message });
       setStatus(message);
     } finally {
       setLoading(false);
