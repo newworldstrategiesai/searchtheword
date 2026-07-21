@@ -1,75 +1,101 @@
 "use client";
 
-import { useSearchParams } from "next/navigation";
 import { useState } from "react";
 import Link from "next/link";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { createClient } from "@/lib/supabase/client";
-import { isAdmin } from "@/lib/auth";
-import { buildPostLoginHref } from "@/lib/post-login";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 
-export function LoginForm() {
-  const searchParams = useSearchParams();
-  const redirectParam = searchParams.get("redirect");
+export function SignUpForm() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [success, setSuccess] = useState(false);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
+
+    if (password.length < 8) {
+      setError("Password must be at least 8 characters.");
+      return;
+    }
+
+    if (password !== confirmPassword) {
+      setError("Passwords do not match.");
+      return;
+    }
+
     setLoading(true);
 
     let loadingToast: string | number | undefined;
     try {
       const supabase = createClient();
-      loadingToast = toast.loading("Logging in…", { description: "Checking your credentials." });
+      loadingToast = toast.loading("Creating account…", { description: "Sending verification email." });
 
-      const { data: signData, error: signErr } = await supabase.auth.signInWithPassword({
+      const redirectTo = `${window.location.origin}/login`;
+      const { error: signUpErr } = await supabase.auth.signUp({
         email,
         password,
+        options: {
+          emailRedirectTo: redirectTo,
+        },
       });
 
-      if (signErr) {
+      if (signUpErr) {
         toast.dismiss(loadingToast);
-        toast.error("Could not sign in", { description: signErr.message });
-        setError(signErr.message);
+        toast.error("Could not sign up", { description: signUpErr.message });
+        setError(signUpErr.message);
         setLoading(false);
         return;
       }
 
-      await supabase.auth.getSession();
-      const { data: userData } = await supabase.auth.getUser();
-      const user = userData.user ?? signData.user;
-      const userIsAdmin = isAdmin(user);
-      const destination = buildPostLoginHref({
-        isAdmin: userIsAdmin,
-        redirectParam,
-      });
-
-      toast.success("Signed in", {
+      toast.success("Account created!", {
         id: loadingToast,
-        description: userIsAdmin ? "Opening admin…" : "Loading your workspace…",
-        duration: 2800,
+        description: "Please check your email for a confirmation link.",
+        duration: 5000,
       });
 
+      setSuccess(true);
       setLoading(false);
-      window.location.assign(destination);
     } catch (err) {
       setLoading(false);
       if (loadingToast !== undefined) toast.dismiss(loadingToast);
       const message = err instanceof Error ? err.message : "Something went wrong.";
-      toast.error("Sign-in unavailable", { description: message });
+      toast.error("Sign-up unavailable", { description: message });
       setError(message);
-      setLoading(false);
     }
+  }
+
+  if (success) {
+    return (
+      <div className="mx-auto flex min-h-[60vh] max-w-md flex-col justify-center px-4 py-12">
+        <Card className="text-center">
+          <CardHeader>
+            <CardTitle>Verify your email</CardTitle>
+            <CardDescription>
+              We’ve sent a confirmation link to <span className="font-semibold text-foreground">{email}</span>.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <p className="text-sm text-muted-foreground">
+              Please check your inbox (and spam folder) and click the link to activate your account.
+              Once confirmed, you will be able to sign in.
+            </p>
+            <Button asChild className="w-full mt-4">
+              <Link href="/login">Go to Sign In</Link>
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    );
   }
 
   return (
@@ -84,14 +110,15 @@ export function LoginForm() {
           aria-live="polite"
         >
           <Loader2 className="h-10 w-10 animate-spin text-primary" aria-hidden />
-          <p className="text-sm font-medium text-foreground">Logging in…</p>
+          <p className="text-sm font-medium text-foreground">Creating account…</p>
           <p className="max-w-[240px] text-center text-xs text-muted-foreground">
-            Securing your session and redirecting.
+            Registering and sending confirmation email.
           </p>
         </div>
 
         <CardHeader>
-          <CardTitle>Sign in</CardTitle>
+          <CardTitle>Create an account</CardTitle>
+          <CardDescription>Sign up to use the sermon assistant and explore teachings.</CardDescription>
         </CardHeader>
         <CardContent>
           <form onSubmit={(e) => void onSubmit(e)} className="space-y-4">
@@ -112,9 +139,21 @@ export function LoginForm() {
               <Input
                 id="password"
                 type="password"
-                autoComplete="current-password"
+                autoComplete="new-password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
+                required
+                disabled={loading}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="confirmPassword">Confirm Password</Label>
+              <Input
+                id="confirmPassword"
+                type="password"
+                autoComplete="new-password"
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
                 required
                 disabled={loading}
               />
@@ -124,22 +163,17 @@ export function LoginForm() {
               {loading ? (
                 <>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Signing in…
+                  Creating account…
                 </>
               ) : (
-                "Sign in"
+                "Sign up"
               )}
             </Button>
           </form>
           <p className="mt-4 text-center text-sm text-muted-foreground">
-            Don&apos;t have an account?{" "}
-            <Link href="/signup" className="underline underline-offset-4">
-              Sign up
-            </Link>
-          </p>
-          <p className="mt-2 text-center text-sm text-muted-foreground">
-            <Link href="/" className="underline underline-offset-4">
-              Back to home
+            Already have an account?{" "}
+            <Link href="/login" className="underline underline-offset-4">
+              Sign in
             </Link>
           </p>
         </CardContent>

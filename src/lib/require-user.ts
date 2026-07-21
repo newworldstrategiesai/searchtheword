@@ -39,7 +39,7 @@ export async function getSessionUser(): Promise<
           error: "Sign in required.",
           code: "auth_required",
           reply:
-            "Please sign in to use the assistant. If you don’t have an account yet, ask your church admin to create one for you.",
+            "Please sign in to use the assistant. If you don’t have an account yet, sign up to create one.",
           citations: [],
         },
         { status: 401 },
