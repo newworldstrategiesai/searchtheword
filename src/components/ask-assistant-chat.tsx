@@ -29,6 +29,26 @@ type Msg = {
 export const ASK_ASSISTANT_INTRO =
   "Hi — I’m your sermon assistant. I only answer from Pastor Vaughn’s indexed teachings and cite the sermon excerpts I used. For exact keyword or scripture lookup, use Search in the header.";
 
+function getHighlightQuery(question: string): string {
+  const STOP_WORDS = new Set([
+    "a", "an", "about", "and", "are", "can", "do", "does", "explain", "for", 
+    "important", "is", "me", "of", "please", "tell", "the", "to", "what", 
+    "why", "with", "how", "we", "you", "i", "he", "she", "they", "them", 
+    "who", "whom", "teach", "teaches", "teaching", "say", "says", "said", 
+    "about", "on", "in", "at", "by", "from", "sermon", "sermons", "what's",
+    "what’s", "who’s", "whos", "where", "wheres", "where’s", "when", "whens",
+    "when’s"
+  ]);
+
+  const words = question
+    .replace(/[^\p{L}\p{N}: ]+/gu, " ")
+    .split(/\s+/)
+    .map((w) => w.trim())
+    .filter((w) => w.length > 1 && !STOP_WORDS.has(w.toLowerCase()));
+
+  return words.slice(0, 2).join(" ").trim();
+}
+
 type AskAssistantChatProps = {
   variant: "page" | "widget";
   className?: string;
@@ -175,6 +195,13 @@ export function AskAssistantChat({ variant, className }: AskAssistantChatProps) 
               m.role === "assistant" ? stripAndExtractNavigationBrackets(m.content) : null;
             const bubbleText = bracketParsed ? bracketParsed.cleanText : m.content;
 
+            const prevUserMsg = messages
+              .slice(0, i)
+              .reverse()
+              .find((msg) => msg.role === "user");
+            const hlQuery = prevUserMsg ? getHighlightQuery(prevUserMsg.content) : "";
+            const queryParam = hlQuery ? `?q=${encodeURIComponent(hlQuery)}` : "";
+
             return (
             <div
               key={i}
@@ -232,7 +259,7 @@ export function AskAssistantChat({ variant, className }: AskAssistantChatProps) 
                             [{c.index}]
                           </span>{" "}
                           <Link
-                            href={`/sermon/${c.sermonId}`}
+                            href={`/sermon/${c.sermonId}${queryParam}`}
                             className="font-medium text-primary underline-offset-2 hover:underline"
                           >
                             {c.title}
