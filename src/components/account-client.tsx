@@ -142,6 +142,20 @@ function ChangePasswordForm({ email }: { email: string }) {
   );
 }
 
+function extractEmails(rows: Record<string, string>[]): string[] {
+  const emails = new Set<string>();
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  for (const row of rows) {
+    for (const value of Object.values(row)) {
+      const trimmed = String(value || "").trim().toLowerCase();
+      if (emailRegex.test(trimmed)) {
+        emails.add(trimmed);
+      }
+    }
+  }
+  return Array.from(emails);
+}
+
 function AdminUsersSection() {
   const [users, setUsers] = useState<ListedUser[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -149,7 +163,9 @@ function AdminUsersSection() {
   const [password, setPassword] = useState("");
   const [grantAdmin, setGrantAdmin] = useState(false);
   const [creating, setCreating] = useState(false);
-  const [mode, setMode] = useState<"invite" | "create">("invite");
+  const [mode, setMode] = useState<"invite" | "create" | "bulk">("invite");
+  const [bulkEmails, setBulkEmails] = useState("");
+  const [bulkFileLoading, setBulkFileLoading] = useState(false);
 
   const loadUsers = useCallback(async () => {
     setLoadError(null);
@@ -172,48 +188,162 @@ function AdminUsersSection() {
     void loadUsers();
   }, [loadUsers]);
 
-  async function createUser(e: React.FormEvent) {
-    e.preventDefault();
-    setCreating(true);
+  async function handleBulkFileUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setBulkFileLoading(true);
+    const formData = new FormData();
+    formData.append("file", file);
+
+    let loadToast: string | number | undefined;
     try {
-      const res = await fetch("/api/admin/users", {
+      loadToast = toast.loading("Parsing spreadsheet…");
+      const res = await fetch("/api/ingest/parse", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          email: email.trim().toLowerCase(),
-          mode,
-          password: mode === "create" ? password : undefined,
-          role: grantAdmin ? "admin" : undefined,
-        }),
+        body: formData,
       });
-      const data = (await res.json()) as {
-        error?: string;
-        invited?: boolean;
-        user?: { email?: string };
-      };
+      const data = (await res.json()) as { rows?: Record<string, string>[]; error?: string };
       if (!res.ok) {
-        toast.error(mode === "invite" ? "Could not send invite" : "Could not create user", {
-          description: data.error,
-        });
+        toast.error("Could not parse file", { id: loadToast, description: data.error });
         return;
       }
-      if (data.invited) {
-        toast.success("Invitation sent", {
-          description: `${data.user?.email ?? email} will get an email to set their password.`,
+
+      const rows = data.rows ?? [];
+      const extracted = extractEmails(rows);
+
+      if (extracted.length === 0) {
+        toast.warning("No emails found", {
+          id: loadToast,
+          description: "We couldn't locate any email addresses in the file.",
         });
       } else {
-        toast.success("User created", { description: data.user?.email ?? email });
+        setBulkEmails((prev) => {
+          const existing = prev.trim()
+            ? prev
+                .split(/[,\s\n]+/)
+                .map((em) => em.trim().toLowerCase())
+                .filter(Boolean)
+            : [];
+          const combined = Array.from(new Set([...existing, ...extracted]));
+          return combined.join("\n");
+        });
+        toast.success(`Found ${extracted.length} email(s)!`, {
+          id: loadToast,
+          description: "Review and edit the list below before sending.",
+        });
       }
-      setEmail("");
-      setPassword("");
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Parsing failed.";
+      toast.error("Upload failed", { id: loadToast, description: msg });
+    } finally {
+      setBulkFileLoading(false);
+      e.target.value = "";
+    }
+  }
+
+  async function onSubmit(e: React.FormEvent) {
+    e.preventDefault();
+
+    if (mode === "bulk") {
+      const emails = bulkEmails
+        .split(/[,\s\n]+/)
+        .map((em) => em.trim().toLowerCase())
+        .filter((em) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(em));
+
+      if (emails.length === 0) {
+        toast.error("No valid emails found", { description: "Please enter or upload valid email addresses." });
+        return;
+      }
+
+      setCreating(true);
+      let successCount = 0;
+      let failCount = 0;
+      const errors: string[] = [];
+
+      const loadingToast = toast.loading(`Sending invites: 0 / ${emails.length}…`);
+
+      for (let i = 0; i < emails.length; i++) {
+        const targetEmail = emails[i];
+        toast.loading(`Inviting ${targetEmail} (${i + 1}/${emails.length})…`, { id: loadingToast });
+        try {
+          const res = await fetch("/api/admin/users", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              email: targetEmail,
+              mode: "invite",
+              role: grantAdmin ? "admin" : undefined,
+            }),
+          });
+          const data = (await res.json()) as { error?: string };
+          if (res.ok) {
+            successCount++;
+          } else {
+            failCount++;
+            errors.push(`${targetEmail}: ${data.error ?? "error"}`);
+          }
+        } catch {
+          failCount++;
+          errors.push(`${targetEmail}: network error`);
+        }
+      }
+
+      toast.dismiss(loadingToast);
+      if (successCount > 0) {
+        toast.success(`Sent ${successCount} invitation(s)`);
+      }
+      if (failCount > 0) {
+        toast.error(`Failed for ${failCount} user(s)`, {
+          description: errors.slice(0, 3).join("; "),
+        });
+      }
+      setBulkEmails("");
       setGrantAdmin(false);
       await loadUsers();
-    } catch (err) {
-      toast.error("Request failed", {
-        description: err instanceof Error ? err.message : "Try again.",
-      });
-    } finally {
       setCreating(false);
+    } else {
+      setCreating(true);
+      try {
+        const res = await fetch("/api/admin/users", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            email: email.trim().toLowerCase(),
+            mode,
+            password: mode === "create" ? password : undefined,
+            role: grantAdmin ? "admin" : undefined,
+          }),
+        });
+        const data = (await res.json()) as {
+          error?: string;
+          invited?: boolean;
+          user?: { email?: string };
+        };
+        if (!res.ok) {
+          toast.error(mode === "invite" ? "Could not send invite" : "Could not create user", {
+            description: data.error,
+          });
+          return;
+        }
+        if (data.invited) {
+          toast.success("Invitation sent", {
+            description: `${data.user?.email ?? email} will get an email to set their password.`,
+          });
+        } else {
+          toast.success("User created", { description: data.user?.email ?? email });
+        }
+        setEmail("");
+        setPassword("");
+        setGrantAdmin(false);
+        await loadUsers();
+      } catch (err) {
+        toast.error("Request failed", {
+          description: err instanceof Error ? err.message : "Try again.",
+        });
+      } finally {
+        setCreating(false);
+      }
     }
   }
 
@@ -225,17 +355,17 @@ function AdminUsersSection() {
           Users
         </CardTitle>
         <CardDescription>
-          Invite people by email (they set their own password), or create a sign-in with a
-          temporary password. New admins get access to Admin and ingest tools.
+          Invite people by email (they set their own password), create a sign-in with a
+          temporary password, or send invitations to multiple emails at once.
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
-        <form onSubmit={(e) => void createUser(e)} className="space-y-4">
+        <form onSubmit={(e) => void onSubmit(e)} className="space-y-4">
           <div className="inline-flex rounded-lg border border-border p-0.5 text-sm">
             <button
               type="button"
               onClick={() => setMode("invite")}
-              disabled={creating}
+              disabled={creating || bulkFileLoading}
               className={cn(
                 "rounded-md px-3 py-1.5 font-medium transition-colors",
                 mode === "invite"
@@ -248,7 +378,7 @@ function AdminUsersSection() {
             <button
               type="button"
               onClick={() => setMode("create")}
-              disabled={creating}
+              disabled={creating || bulkFileLoading}
               className={cn(
                 "rounded-md px-3 py-1.5 font-medium transition-colors",
                 mode === "create"
@@ -258,42 +388,94 @@ function AdminUsersSection() {
             >
               Temporary password
             </button>
+            <button
+              type="button"
+              onClick={() => setMode("bulk")}
+              disabled={creating || bulkFileLoading}
+              className={cn(
+                "rounded-md px-3 py-1.5 font-medium transition-colors",
+                mode === "bulk"
+                  ? "bg-primary text-primary-foreground"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              Bulk invite
+            </button>
           </div>
 
-          <div className="grid gap-4 sm:grid-cols-2">
-            <div className="space-y-2 sm:col-span-2">
-              <Label htmlFor="invite-email">Email</Label>
-              <Input
-                id="invite-email"
-                type="email"
-                autoComplete="off"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                required
-                disabled={creating}
-              />
-            </div>
-            {mode === "create" && (
+          {mode === "bulk" ? (
+            <div className="grid gap-4 sm:grid-cols-2">
               <div className="space-y-2 sm:col-span-2">
-                <Label htmlFor="invite-password">Temporary password</Label>
+                <Label htmlFor="bulk-file">Upload spreadsheet (optional)</Label>
                 <Input
-                  id="invite-password"
-                  type="password"
-                  autoComplete="new-password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
+                  id="bulk-file"
+                  type="file"
+                  accept=".csv,.xlsx,.xls,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                  disabled={creating || bulkFileLoading}
+                  onChange={(e) => void handleBulkFileUpload(e)}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Upload an Excel (.xlsx/.xls) or CSV file. We will extract all email addresses found in the sheet.
+                </p>
+              </div>
+              <div className="space-y-2 sm:col-span-2">
+                <Label htmlFor="bulk-emails">Emails to invite</Label>
+                <textarea
+                  id="bulk-emails"
+                  value={bulkEmails}
+                  onChange={(e) => setBulkEmails(e.target.value)}
+                  disabled={creating || bulkFileLoading}
+                  placeholder="pastor@example.com, member1@example.com&#10;member2@example.com"
+                  className="min-h-24 w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
                   required
-                  minLength={8}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Enter email addresses separated by commas, spaces, or newlines.
+                </p>
+              </div>
+            </div>
+          ) : (
+            <div className="grid gap-4 sm:grid-cols-2">
+              <div className="space-y-2 sm:col-span-2">
+                <Label htmlFor="invite-email">Email</Label>
+                <Input
+                  id="invite-email"
+                  type="email"
+                  autoComplete="off"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  required
                   disabled={creating}
                 />
-                <p className="text-xs text-muted-foreground">Minimum 8 characters. Ask them to change it after first sign-in.</p>
               </div>
-            )}
-          </div>
+              {mode === "create" && (
+                <div className="space-y-2 sm:col-span-2">
+                  <Label htmlFor="invite-password">Temporary password</Label>
+                  <Input
+                    id="invite-password"
+                    type="password"
+                    autoComplete="new-password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    required
+                    minLength={8}
+                    disabled={creating}
+                  />
+                  <p className="text-xs text-muted-foreground">Minimum 8 characters. Ask them to change it after first sign-in.</p>
+                </div>
+              )}
+            </div>
+          )}
+
           {mode === "invite" && (
             <p className="text-xs text-muted-foreground">
               We’ll email a secure link so they can set their own password. (Requires email/SMTP set
               up in Supabase.)
+            </p>
+          )}
+          {mode === "bulk" && (
+            <p className="text-xs text-muted-foreground">
+              We’ll email a secure link to each valid address in the list above so they can set their own passwords.
             </p>
           )}
           <label className="flex cursor-pointer items-center gap-2 text-sm">
@@ -301,17 +483,19 @@ function AdminUsersSection() {
               type="checkbox"
               checked={grantAdmin}
               onChange={(e) => setGrantAdmin(e.target.checked)}
-              disabled={creating}
+              disabled={creating || bulkFileLoading}
               className="size-4 rounded border-input"
             />
             Grant admin access
           </label>
-          <Button type="submit" disabled={creating}>
+          <Button type="submit" disabled={creating || bulkFileLoading}>
             {creating ? (
               <>
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                {mode === "invite" ? "Sending…" : "Creating…"}
+                {mode === "bulk" ? "Inviting…" : mode === "invite" ? "Sending…" : "Creating…"}
               </>
+            ) : mode === "bulk" ? (
+              "Send invites"
             ) : mode === "invite" ? (
               "Send invite"
             ) : (
