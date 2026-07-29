@@ -3,12 +3,14 @@
 import Link from "next/link";
 import { ChevronLeft, ChevronRight, Search } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useSearchBarShortcut } from "@/hooks/use-search";
+import { createClient } from "@/lib/supabase/client";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { cn } from "@/lib/utils";
 import type { SearchMode } from "@/lib/types";
+import type { User } from "@supabase/supabase-js";
 
 const MODES: { id: SearchMode; label: string }[] = [
   { id: "all", label: "AI search" },
@@ -38,6 +40,26 @@ export function HomeHeroSearch() {
   const [hintIndex, setHintIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
   useSearchBarShortcut(inputRef);
+
+  const [user, setUser] = useState<User | null>(null);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    const timer = setTimeout(() => setMounted(true), 0);
+    const supabase = createClient();
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setUser(session?.user ?? null);
+    });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null);
+    });
+
+    return () => {
+      subscription.unsubscribe();
+      clearTimeout(timer);
+    };
+  }, []);
 
   function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -86,6 +108,19 @@ export function HomeHeroSearch() {
             Ask AI
           </Link>
         </p>
+        {mounted && !user && (
+          <p className="mt-3 text-sm text-muted-foreground animate-in fade-in duration-300">
+            Want to use the AI assistant?{" "}
+            <Link href="/signup" className="font-semibold text-primary underline underline-offset-2 hover:text-primary/80">
+              Create a free account
+            </Link>{" "}
+            or{" "}
+            <Link href="/login" className="font-semibold text-primary underline underline-offset-2 hover:text-primary/80">
+              Sign in
+            </Link>
+            .
+          </p>
+        )}
       </div>
 
       <form onSubmit={onSubmit} className="space-y-5 text-left">

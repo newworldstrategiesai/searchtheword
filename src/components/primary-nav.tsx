@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useEffect, useState } from "react";
-import { Database, GraduationCap, MessageSquare, Shield, UserCircle } from "lucide-react";
+import { Database, GraduationCap, MessageSquare, Shield, UserCircle, UserPlus } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { isAdmin } from "@/lib/auth";
 import { cn } from "@/lib/utils";
@@ -74,7 +74,13 @@ function useNavLinks() {
       href: "/login",
       label: "Sign In",
       icon: UserCircle,
-      match: (p: string) => p.startsWith("/login") || p.startsWith("/signup"),
+      match: (p: string) => p.startsWith("/login"),
+    });
+    links.push({
+      href: "/signup",
+      label: "Sign Up",
+      icon: UserPlus,
+      match: (p: string) => p.startsWith("/signup"),
     });
   }
 
