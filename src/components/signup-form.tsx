@@ -2,16 +2,19 @@
 
 import { useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { createClient } from "@/lib/supabase/client";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { cn } from "@/lib/utils";
 
 export function SignUpForm() {
+  const searchParams = useSearchParams();
+  const redirectParam = searchParams.get("redirect");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
@@ -40,7 +43,11 @@ export function SignUpForm() {
       const supabase = createClient();
       loadingToast = toast.loading("Creating account…", { description: "Sending verification email." });
 
-      const redirectTo = `${window.location.origin}/login`;
+      const loginUrl = new URL(`${window.location.origin}/login`);
+      if (redirectParam) {
+        loginUrl.searchParams.set("redirect", redirectParam);
+      }
+      const redirectTo = loginUrl.toString();
       const { error: signUpErr } = await supabase.auth.signUp({
         email,
         password,
@@ -89,9 +96,12 @@ export function SignUpForm() {
               Please check your inbox (and spam folder) and click the link to activate your account.
               Once confirmed, you will be able to sign in.
             </p>
-            <Button asChild className="w-full mt-4">
-              <Link href="/login">Go to Sign In</Link>
-            </Button>
+            <Link
+              href={redirectParam ? `/login?redirect=${encodeURIComponent(redirectParam)}` : "/login"}
+              className={cn(buttonVariants(), "w-full mt-4")}
+            >
+              Go to Sign In
+            </Link>
           </CardContent>
         </Card>
       </div>
@@ -172,7 +182,7 @@ export function SignUpForm() {
           </form>
           <p className="mt-4 text-center text-sm text-muted-foreground">
             Already have an account?{" "}
-            <Link href="/login" className="underline underline-offset-4">
+            <Link href={redirectParam ? `/login?redirect=${encodeURIComponent(redirectParam)}` : "/login"} className="underline underline-offset-4">
               Sign in
             </Link>
           </p>

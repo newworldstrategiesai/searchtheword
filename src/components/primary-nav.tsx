@@ -2,26 +2,84 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { useEffect, useState } from "react";
 import { Database, GraduationCap, MessageSquare, Shield, UserCircle } from "lucide-react";
+import { createClient } from "@/lib/supabase/client";
+import { isAdmin } from "@/lib/auth";
 import { cn } from "@/lib/utils";
+import type { User } from "@supabase/supabase-js";
 
-export const PRIMARY_NAV_LINKS = [
-  {
-    href: "/",
-    label: "Search",
-    icon: Database,
-    match: (p: string) => p === "/" || p.startsWith("/search") || p.startsWith("/sermon"),
-  },
-  {
-    href: "/search?document_type=Bible%20Study",
-    label: "Studies",
-    icon: GraduationCap,
-    match: () => false,
-  },
-  { href: "/ask", label: "Ask AI", icon: MessageSquare, match: (p: string) => p.startsWith("/ask") },
-  { href: "/account", label: "Account", icon: UserCircle, match: (p: string) => p.startsWith("/account") },
-  { href: "/admin", label: "Admin", icon: Shield, match: (p: string) => p.startsWith("/admin") },
-] as const;
+function useNavLinks() {
+  const [user, setUser] = useState<User | null>(null);
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    const timer = setTimeout(() => setMounted(true), 0);
+    const supabase = createClient();
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setUser(session?.user ?? null);
+    });
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null);
+    });
+
+    return () => {
+      subscription.unsubscribe();
+      clearTimeout(timer);
+    };
+  }, []);
+
+  const links = [
+    {
+      href: "/",
+      label: "Search",
+      icon: Database,
+      match: (p: string) => p === "/" || p.startsWith("/search") || p.startsWith("/sermon"),
+    },
+    {
+      href: "/search?document_type=Bible%20Study",
+      label: "Studies",
+      icon: GraduationCap,
+      match: () => false,
+    },
+    { href: "/ask", label: "Ask AI", icon: MessageSquare, match: (p: string) => p.startsWith("/ask") },
+  ];
+
+  if (!mounted) {
+    // SSR / Hydration: default to matching the static/server representation
+    links.push({
+      href: "/account",
+      label: "Account",
+      icon: UserCircle,
+      match: (p: string) => p.startsWith("/account"),
+    });
+  } else if (user) {
+    links.push({
+      href: "/account",
+      label: "Account",
+      icon: UserCircle,
+      match: (p: string) => p.startsWith("/account"),
+    });
+    if (isAdmin(user)) {
+      links.push({
+        href: "/admin",
+        label: "Admin",
+        icon: Shield,
+        match: (p: string) => p.startsWith("/admin"),
+      });
+    }
+  } else {
+    links.push({
+      href: "/login",
+      label: "Sign In",
+      icon: UserCircle,
+      match: (p: string) => p.startsWith("/login") || p.startsWith("/signup"),
+    });
+  }
+
+  return links;
+}
 
 type PrimaryNavProps = {
   className?: string;
@@ -29,6 +87,7 @@ type PrimaryNavProps = {
 
 export function PrimaryNav({ className }: PrimaryNavProps) {
   const pathname = usePathname();
+  const links = useNavLinks();
 
   return (
     <div className={cn("min-w-0", className)}>
@@ -40,7 +99,7 @@ export function PrimaryNav({ className }: PrimaryNavProps) {
           className="flex w-max max-w-none flex-nowrap items-center gap-1 sm:w-auto sm:flex-wrap sm:gap-1.5 lg:w-auto lg:gap-2"
           aria-label="Main"
         >
-          {PRIMARY_NAV_LINKS.map(({ href, label, icon: Icon, match }) => {
+          {links.map(({ href, label, icon: Icon, match }) => {
             const active = match(pathname);
             return (
               <Link
@@ -73,10 +132,11 @@ type PrimaryNavDrawerProps = {
 /** Full-width vertical links for mobile sheet menu */
 export function PrimaryNavDrawer({ onNavigate, className }: PrimaryNavDrawerProps) {
   const pathname = usePathname();
+  const links = useNavLinks();
 
   return (
     <nav className={cn("flex flex-col gap-0.5", className)} aria-label="Main">
-      {PRIMARY_NAV_LINKS.map(({ href, label, icon: Icon, match }) => {
+      {links.map(({ href, label, icon: Icon, match }) => {
         const active = match(pathname);
         return (
           <Link
@@ -98,3 +158,4 @@ export function PrimaryNavDrawer({ onNavigate, className }: PrimaryNavDrawerProp
     </nav>
   );
 }
+
